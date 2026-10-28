@@ -4,6 +4,7 @@ import { createApp } from "../src/app";
 import { Booking } from "../src/models/demo.model";
 import { ActionRecord } from "../src/models/actionRecord.model";
 import { AuditEvent } from "../src/models/auditEvent.model";
+import { Workspace } from "../src/models/workspace.model";
 import { DEMO_PASSWORD, seedDemoData, SeedResult } from "../src/services/demo/demo.service";
 import { startTestDb, stopTestDb } from "./helpers/testDb";
 
@@ -258,6 +259,81 @@ describe("undo", () => {
     const undo = await request(app).post(`/api/actions/${res.body.data.actionId}/undo`).set("authorization", `Bearer ${token}`);
     expect(undo.status).toBe(409);
     expect(undo.body.message).toContain("permanent");
+  });
+});
+
+describe("money in agent replies (REST)", () => {
+  // The real-world problem: an agent got "3900" and guessed it might be $39.00 in cents.
+  it("sends the currency and a formatted amount next to the number, and keeps the old fields", async () => {
+    const res = await cancel("BK-1003"); // ₹3,900, small enough to run at once
+    expect(res.body.data.status).toBe("done");
+    expect(res.body.data.currency).toBe("INR");
+    expect(res.body.data.result).toEqual({
+      bookingCode: "BK-1003",
+      status: "cancelled",
+      refundAmount: 3900,
+      currency: "INR",
+      refundAmountFormatted: "₹3,900",
+    });
+    // Every field that existed before is still there, with the same type.
+    expect(Object.keys(res.body.data)).toEqual(expect.arrayContaining(["actionId", "status", "decision", "message", "reasons", "result"]));
+  });
+
+  it("formats the facts too, including while a person still has to decide", async () => {
+    const res = await cancel("BK-1001");
+    expect(res.status).toBe(202);
+    expect(res.body.data.result).toBeNull();
+    expect(res.body.data.facts).toMatchObject({ amount: 7500, currency: "INR", amountFormatted: "₹7,500", customerCode: "CU-101" });
+  });
+
+  it("formats amounts for discounts (result and facts)", async () => {
+    const res = await agentRequest(acmeAgentKey, { action: "booking.applyDiscount", params: { bookingCode: "BK-1003", percent: 10 } });
+    expect(res.body.data.status).toBe("done");
+    expect(res.body.data.result).toMatchObject({ newAmount: 3510, currency: "INR", newAmountFormatted: "₹3,510", discountPercent: 10 });
+    expect(res.body.data.facts).toMatchObject({ amountFormatted: "₹3,900", discountAmount: 390, discountAmountFormatted: "₹390" });
+  });
+
+  it("leaves replies with no money in them as they were (no stray currency on the result)", async () => {
+    const res = await agentRequest(acmeAgentKey, { action: "booking.reschedule", params: { bookingCode: "BK-1002", newStartDate: "2099-01-15" } });
+    expect(res.body.data.status).toBe("done");
+    expect(res.body.data.result).not.toHaveProperty("currency");
+    expect(res.body.data.facts).toMatchObject({ amount: 4500, amountFormatted: "₹4,500" }); // the booking's own price is money
+  });
+
+  it("puts the currency in the reasons a refusal gives", async () => {
+    for (const code of ["BK-1002", "BK-1003", "BK-1004", "BK-1006"]) await cancel(code);
+    const refused = await cancel("BK-1007");
+    expect(refused.body.data.status).toBe("denied");
+    expect(refused.body.data.reasons.join(" ")).toContain("₹22,300");
+    expect(refused.body.data.reasons.join(" ")).toContain("₹20,000");
+  });
+
+  it("answers the status check with the same fields", async () => {
+    const res = await cancel("BK-1003");
+    const status = await request(app).get(`/api/agent/actions/${res.body.data.actionId}`).set("x-agent-key", acmeAgentKey);
+    expect(status.status).toBe(200);
+    expect(status.body.data.currency).toBe("INR");
+    expect(status.body.data.result).toMatchObject({ refundAmount: 3900, currency: "INR", refundAmountFormatted: "₹3,900" });
+  });
+
+  it("uses the company's own currency, in the reply and in the sentence people read", async () => {
+    await Workspace.updateOne({ slug: "acme-travels" }, { $set: { currency: "USD" } });
+    const res = await cancel("BK-1003");
+    expect(res.body.data.currency).toBe("USD");
+    expect(res.body.data.result).toMatchObject({ refundAmount: 3900, currency: "USD", refundAmountFormatted: "$3,900" });
+    const record = await ActionRecord.findById(res.body.data.actionId).lean();
+    expect(record?.summary).toContain("$3,900");
+    expect(record?.summary).not.toContain("₹");
+    // Another company keeps its own currency.
+    const other = await cancel("BK-2001", globexAgentKey);
+    expect(other.body.data.currency).toBe("INR");
+  });
+
+  it("still answers, with the code spelled out, when the saved currency is not a real one", async () => {
+    await Workspace.updateOne({ slug: "acme-travels" }, { $set: { currency: "RUPEES" } });
+    const res = await cancel("BK-1003");
+    expect(res.status).toBe(200);
+    expect(res.body.data.result).toMatchObject({ currency: "RUPEES", refundAmountFormatted: "RUPEES 3,900" });
   });
 });
 

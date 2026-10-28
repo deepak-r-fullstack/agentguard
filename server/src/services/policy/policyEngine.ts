@@ -1,4 +1,5 @@
 import { ConditionOperator, Decision, DEFAULT_DECISION, LimitScope } from "../../constants";
+import { formatMoney } from "../../utils/format";
 
 // ---------------------------------------------------------------------------
 // The policy engine. Pure functions only: no database, no network, no AI.
@@ -36,6 +37,9 @@ export interface EvaluationInput {
   irreversible: boolean;
   // Total already used today for each rule that has a daily limit (rule id -> sum).
   usageByRuleId?: Record<string, number>;
+  // When a daily limit adds up one of these fields (e.g. "facts.amount"), its reason shows
+  // the currency ("₹22,300") instead of a bare number an agent could misread.
+  money?: { currency: string; fields: string[] };
 }
 
 export interface EvaluationResult {
@@ -50,6 +54,10 @@ const STRICTNESS: Record<Decision, number> = { allow: 0, require_approval: 1, de
 // Indian digit grouping (1,20,000) to match how the amounts are shown everywhere else.
 function formatNumber(value: number): string {
   return value.toLocaleString("en-IN");
+}
+
+function formatLimitValue(value: number, sumField: string, money: EvaluationInput["money"]): string {
+  return money?.fields.includes(sumField) ? formatMoney(value, money.currency) : formatNumber(value);
 }
 
 export function getValueAtPath(source: unknown, path: string): unknown {
@@ -129,7 +137,7 @@ export function evaluatePolicies(rules: PolicyRule[], input: EvaluationInput): E
       const detail =
         projectedTotal === null
           ? "the amount could not be measured"
-          : `today's total would reach ${formatNumber(projectedTotal)}, over the limit of ${formatNumber(rule.dailyLimit.max)}`;
+          : `today's total would reach ${formatLimitValue(projectedTotal, rule.dailyLimit.sumField, input.money)}, over the limit of ${formatLimitValue(rule.dailyLimit.max, rule.dailyLimit.sumField, input.money)}`;
       matched.push({ rule, reason: `Rule "${rule.name}": ${detail}.` });
       continue;
     }

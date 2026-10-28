@@ -153,6 +153,20 @@ export interface AgentSummary {
   active: boolean;
 }
 
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface AddedTeamMember {
+  member: TeamMember;
+  temporaryPassword: string;
+}
+
 export interface Connections {
   slack: { configured: boolean; channelId: string };
 }

@@ -8,7 +8,9 @@ import { Actor, recordAuditEvent, SYSTEM_ACTOR } from "../audit/audit.service";
 import { evaluatePolicies } from "../policy/policyEngine";
 import { getEnabledRules, getUsageByRuleId } from "../policy/policy.service";
 import { notifyApprovalRequested, notifyDecisionMade } from "../slack/slack.service";
+import { DEFAULT_CURRENCY } from "../../utils/format";
 import { ActionContext, getActionDefinition } from "./actionRegistry";
+import { getWorkspaceCurrency, withMoneyFields } from "./money.service";
 
 // ---------------------------------------------------------------------------
 // The guard: the one entry point an agent may use to change anything.
@@ -44,7 +46,8 @@ function safeErrorMessage(err: unknown): string {
 
 export async function requestAction(agent: AgentIdentity, input: ActionRequestInput): Promise<ActionRecordDoc> {
   const workspaceId = agent.workspaceId as Types.ObjectId;
-  const ctx: ActionContext = { workspaceId };
+  const currency = await getWorkspaceCurrency(workspaceId);
+  const ctx: ActionContext = { workspaceId, currency };
 
   // 1. Idempotency: a retried request (network blip, agent loop) must not act twice.
   const existing = await ActionRecord.findOne({
@@ -90,6 +93,7 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
     action: definition.key,
     irreversible: definition.irreversible,
     usageByRuleId,
+    money: { currency, fields: definition.moneyFields.facts.map((field) => `facts.${field}`) },
     context: {
       params,
       facts: prepared.facts,
@@ -378,7 +382,10 @@ export function toActionDto(record: ActionRecordDoc) {
 }
 
 // Short reply for agents: what happened and what to do next.
-export function toAgentResponse(record: ActionRecordDoc) {
+// Every amount comes with its currency and a formatted string (see money.service), so an
+// agent never has to guess whether "3900" means rupees, dollars or cents. These are added
+// next to the existing fields; nothing was renamed or removed.
+export function toAgentResponse(record: ActionRecordDoc, currency = DEFAULT_CURRENCY) {
   const messages: Record<string, string> = {
     done: "Done.",
     pending_approval: "Waiting for a person to approve. Check again later with GET /api/agent/actions/:id.",
@@ -389,12 +396,26 @@ export function toAgentResponse(record: ActionRecordDoc) {
     executing: "Running.",
     undoing: "Being undone.",
   };
+  const moneyFields = (() => {
+    try {
+      return getActionDefinition(record.action).moneyFields;
+    } catch {
+      return { facts: [], result: [] };
+    }
+  })();
   return {
     actionId: String(record._id),
     status: record.status,
     decision: record.decision,
     message: messages[record.status] || record.status,
     reasons: record.decisionReasons,
-    result: record.status === "done" ? record.result : null,
+    result: record.status === "done" ? withMoneyFields(record.result, moneyFields.result, currency) : null,
+    facts: withMoneyFields(record.facts, moneyFields.facts, currency),
+    currency,
   };
+}
+
+// What both agent doors (REST and MCP) send back: the reply above, in the workspace's own currency.
+export async function describeForAgent(record: ActionRecordDoc) {
+  return toAgentResponse(record, await getWorkspaceCurrency(record.workspaceId as Types.ObjectId));
 }

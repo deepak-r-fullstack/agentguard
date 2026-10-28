@@ -2,7 +2,8 @@ import { NextFunction, Request, Response } from "express";
 import { Types } from "mongoose";
 import { UserRole } from "../constants";
 import { ForbiddenError, UnauthorizedError } from "../helpers/errors";
-import { findAgentByApiKey, verifyToken } from "../services/auth/auth.service";
+import { findAgentByApiKey, isUserActive, verifyToken } from "../services/auth/auth.service";
+import { User } from "../models/user.model";
 import { AgentDoc } from "../models/agent.model";
 import { Actor } from "../services/audit/audit.service";
 
@@ -33,22 +34,32 @@ export function userActor(user: RequestUser): Actor & { email: string } {
   return { type: "user", id: user.id, name: user.name, email: user.email };
 }
 
-export function authenticateUser(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers.authorization || "";
-  const [scheme, token] = header.split(" ");
-  if (scheme !== "Bearer" || !token) return next(new UnauthorizedError("Please sign in."));
+export async function authenticateUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    const header = req.headers.authorization || "";
+    const [scheme, token] = header.split(" ");
+    if (scheme !== "Bearer" || !token) throw new UnauthorizedError("Please sign in.");
 
-  const payload = verifyToken(token);
-  if (!Types.ObjectId.isValid(payload.workspaceId)) return next(new UnauthorizedError());
+    const payload = verifyToken(token);
+    if (!Types.ObjectId.isValid(payload.sub) || !Types.ObjectId.isValid(payload.workspaceId)) throw new UnauthorizedError();
 
-  res.locals.user = {
-    id: payload.sub,
-    workspaceId: new Types.ObjectId(payload.workspaceId),
-    role: payload.role,
-    name: payload.name,
-    email: payload.email,
-  } satisfies RequestUser;
-  return next();
+    // The token only proves who signed in earlier. The person's current record decides what they may do now,
+    // so turning someone off, or changing their role, takes effect on their very next request.
+    const user = await User.findOne({ _id: payload.sub, workspaceId: payload.workspaceId }).lean();
+    if (!user) throw new UnauthorizedError();
+    if (!isUserActive(user)) throw new UnauthorizedError("This account has been turned off. Please ask an admin at your company.");
+
+    res.locals.user = {
+      id: String(user._id),
+      workspaceId: user.workspaceId as Types.ObjectId,
+      role: user.role,
+      name: user.name,
+      email: user.email,
+    } satisfies RequestUser;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 export function authorizeRoles(...roles: UserRole[]) {

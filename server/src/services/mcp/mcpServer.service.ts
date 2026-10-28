@@ -6,7 +6,7 @@ import { AppError, ForbiddenError, NotFoundError } from "../../helpers/errors";
 import { AgentDoc } from "../../models/agent.model";
 import { logger, serializeError } from "../../utils/logger";
 import { ActionDefinition, listActionDefinitions } from "../actions/actionRegistry";
-import { getAction, requestAction, toAgentResponse } from "../actions/guard.service";
+import { describeForAgent, getAction, requestAction } from "../actions/guard.service";
 
 // ---------------------------------------------------------------------------
 // MCP (Model Context Protocol) front door for AI agents.
@@ -71,8 +71,8 @@ function errorResult(err: unknown, toolName: string): CallToolResult {
 }
 
 // The MCP reply should point agents at the MCP way of checking later, not the REST address.
-function toMcpResponse(record: Parameters<typeof toAgentResponse>[0]) {
-  const response = toAgentResponse(record);
+async function toMcpResponse(record: Parameters<typeof describeForAgent>[0]) {
+  const response = await describeForAgent(record);
   if (response.status !== "pending_approval") return response;
   return { ...response, message: `Waiting for a person to approve. Check again later with the ${GET_ACTION_STATUS_TOOL} tool.` };
 }
@@ -95,7 +95,7 @@ function registerActionTool(server: McpServer, agent: AgentIdentity, definition:
     try {
       const { onBehalfOf, idempotencyKey, reason, ...params } = args as ActionToolArgs;
       const record = await requestAction(agent, { action: definition.key, params, reason, onBehalfOf, idempotencyKey });
-      return jsonResult(toMcpResponse(record));
+      return jsonResult(await toMcpResponse(record));
     } catch (err) {
       return errorResult(err, toolName);
     }
@@ -141,7 +141,7 @@ function registerStatusTool(server: McpServer, agent: AgentIdentity) {
         const record = await getAction(agent.workspaceId as Types.ObjectId, actionId);
         // Agents can only read their own actions (same rule as GET /api/agent/actions/:id).
         if (String(record.agentId) !== String(agent._id)) throw new ForbiddenError();
-        return jsonResult(toMcpResponse(record));
+        return jsonResult(await toMcpResponse(record));
       } catch (err) {
         return errorResult(err, GET_ACTION_STATUS_TOOL);
       }

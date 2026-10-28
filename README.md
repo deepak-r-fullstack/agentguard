@@ -183,6 +183,14 @@ curl -X POST http://localhost:5050/api/agent/actions \
 
 Responses: `200` with `status: "done"` or `"denied"` (and the reasons), or `202` with `status: "pending_approval"`. Check later with `GET /api/agent/actions/:id`. `GET /api/agent/catalog` lists the allowed actions.
 
+**Money is never a bare number.** Every amount an agent receives (in `result`, in `facts`, and in the `reasons` text) comes with the company's currency (`Workspace.currency`, `INR` by default) and a ready-to-read string, over REST and MCP alike:
+
+```json
+{ "refundAmount": 3900, "currency": "INR", "refundAmountFormatted": "₹3,900" }
+```
+
+The top-level reply also has `currency`. These fields are only ever added next to the existing ones. Which fields are money is declared per action (`moneyFields` in `actionRegistry.ts`), so a new action only has to list its own.
+
 ## Connect any AI agent with MCP
 
 [MCP](https://modelcontextprotocol.io) (Model Context Protocol) is the standard way AI tools such as Claude, Cursor or your own agents discover and call tools. AgentGuard speaks it, so an MCP-capable agent can use your guarded actions with no custom code.
@@ -203,6 +211,17 @@ claude mcp add --transport http agentguard https://YOUR-APP/api/mcp \
 ```
 
 Try it on the live demo: sign in as `admin@acme.test`, open **Agent keys**, create a key for Support Copilot, add the server as above, then ask the agent to "cancel booking BK-1001". It will say the request is waiting; approve it on the **Approvals** page.
+
+## Team (admins)
+
+The **Team** page lets an admin manage the people in their own company without touching the database: see everyone (name, email, role, active), add a person with a one-time temporary password, change a role, and turn an account off or on. People are never deleted, so the audit log keeps their names.
+
+- A turned-off person cannot sign in, and their existing session stops working on their very next request (every request checks the person's current record, so a role change is instant too). They also cannot approve in Slack.
+- An admin cannot turn off or demote themselves, and a company always keeps at least one active admin (also when two admins act at the same moment).
+- Added, role changed, turned off and turned on are all written to the audit log. **Reset demo data** keeps the people, and these audit entries.
+- The email in someone's Slack profile must match their email here, or their Slack approvals will not work.
+- Users that existed before the `active` field was added have no value for it and count as active, so no data migration is needed.
+- API (admin only, own company only): `GET /api/team`, `POST /api/team`, `PUT /api/team/:id/role`, `POST /api/team/:id/deactivate`, `POST /api/team/:id/reactivate`.
 
 ## Slack approvals
 

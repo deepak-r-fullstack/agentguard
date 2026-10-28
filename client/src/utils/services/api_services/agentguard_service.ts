@@ -1,5 +1,6 @@
 import { apiClient } from "./apiClient";
 import {
+  AddedTeamMember,
   AgentAction,
   AgentSummary,
   ApiEnvelope,
@@ -12,6 +13,8 @@ import {
   PolicyInput,
   RuleDraft,
   SessionUser,
+  TeamMember,
+  UserRole,
 } from "utils/types";
 
 // Thin wrappers around each endpoint. They return `data` only; the message comes back too when a screen wants it.
@@ -57,6 +60,14 @@ export const auditService = {
 export const agentService = {
   list: () => unwrap<AgentSummary[]>(apiClient.get("/agents")),
   rotateKey: (id: string) => unwrap<{ id: string; name: string; apiKey: string }>(apiClient.post(`/agents/${id}/rotate-key`)),
+};
+
+export const teamService = {
+  list: () => unwrap<TeamMember[]>(apiClient.get("/team")),
+  add: (input: { name: string; email: string; role: UserRole }) => unwrap<AddedTeamMember>(apiClient.post("/team", input)),
+  changeRole: (id: string, role: UserRole) => unwrap<TeamMember>(apiClient.put(`/team/${id}/role`, { role })),
+  deactivate: (id: string) => unwrap<TeamMember>(apiClient.post(`/team/${id}/deactivate`)),
+  reactivate: (id: string) => unwrap<TeamMember>(apiClient.post(`/team/${id}/reactivate`)),
 };
 
 export const integrationService = {

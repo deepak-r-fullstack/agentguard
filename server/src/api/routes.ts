@@ -16,6 +16,7 @@ import * as demoController from "../controllers/demo.controller";
 import * as mcpController from "../controllers/mcp.controller";
 import * as integrationsController from "../controllers/integrations.controller";
 import * as slackController from "../controllers/slack.controller";
+import * as teamController from "../controllers/team.controller";
 import { NotFoundError } from "../helpers/errors";
 
 const router = Router();
@@ -117,6 +118,25 @@ router.get(
 // ---------- people: agent keys ----------
 router.get("/agents", authenticateUser, authorizeRoles("admin"), asyncHandler(agentsController.getAgents));
 router.post("/agents/:id/rotate-key", authenticateUser, authorizeRoles("admin"), asyncHandler(agentsController.rotateKey));
+
+// ---------- people: team (admin adds and manages people, no database needed) ----------
+router.get("/team", authenticateUser, authorizeRoles("admin"), asyncHandler(teamController.getTeam));
+router.post(
+  "/team",
+  authenticateUser,
+  authorizeRoles("admin"),
+  validateRequest(teamController.addMemberSchema),
+  asyncHandler(teamController.addMember)
+);
+router.put(
+  "/team/:id/role",
+  authenticateUser,
+  authorizeRoles("admin"),
+  validateRequest(teamController.changeRoleSchema),
+  asyncHandler(teamController.changeRole)
+);
+router.post("/team/:id/deactivate", authenticateUser, authorizeRoles("admin"), asyncHandler(teamController.deactivate));
+router.post("/team/:id/reactivate", authenticateUser, authorizeRoles("admin"), asyncHandler(teamController.reactivate));
 
 // ---------- people: connections (MCP address, Slack) ----------
 router.get("/integrations", authenticateUser, authorizeRoles("admin"), asyncHandler(integrationsController.getIntegrations));

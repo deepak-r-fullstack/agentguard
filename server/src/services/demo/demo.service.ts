@@ -9,6 +9,7 @@ import { AuditEvent } from "../../models/auditEvent.model";
 import { generateApiKey, hashPassword } from "../auth/auth.service";
 import { PolicyInput } from "../policy/policySchemas";
 import { Actor, recordAuditEvent } from "../audit/audit.service";
+import { TEAM_AUDIT_EVENT_TYPES } from "../../constants";
 
 // ---------------------------------------------------------------------------
 // Demo data: two companies, so the demo can prove one company's agent can never
@@ -161,14 +162,15 @@ async function seedCompanyData(workspaceId: Types.ObjectId, company: DemoCompany
   await Policy.insertMany(company.policies.map((policy) => ({ ...policy, workspaceId })));
 }
 
-async function clearWorkspaceData(workspaceId: Types.ObjectId) {
+// keepTeamHistory: "Reset demo data" keeps the people, so it also keeps the record of who added or switched them off.
+async function clearWorkspaceData(workspaceId: Types.ObjectId, { keepTeamHistory = false } = {}) {
   await Promise.all([
     Customer.deleteMany({ workspaceId }),
     Booking.deleteMany({ workspaceId }),
     Outbox.deleteMany({ workspaceId }),
     Policy.deleteMany({ workspaceId }),
     ActionRecord.deleteMany({ workspaceId }),
-    AuditEvent.deleteMany({ workspaceId }),
+    AuditEvent.deleteMany(keepTeamHistory ? { workspaceId, type: { $nin: TEAM_AUDIT_EVENT_TYPES } } : { workspaceId }),
   ]);
 }
 
@@ -205,12 +207,12 @@ export async function seedDemoData(): Promise<SeedResult> {
   return result;
 }
 
-/** Puts one workspace's company data, rules and history back to the start. Keeps users and agent keys. */
+/** Puts one workspace's company data, rules and history back to the start. Keeps users (including people added on the Team screen) and agent keys. */
 export async function resetWorkspaceDemoData(workspaceId: Types.ObjectId, actor: Actor) {
   const workspace = await Workspace.findById(workspaceId).lean();
   const company = DEMO_COMPANIES.find((candidate) => candidate.slug === workspace?.slug);
   if (!company) return false;
-  await clearWorkspaceData(workspaceId);
+  await clearWorkspaceData(workspaceId, { keepTeamHistory: true });
   await seedCompanyData(workspaceId, company);
   await recordAuditEvent({ workspaceId, type: "demo_reset", actor, summary: "Reset the demo data to its starting point" });
   return true;

@@ -1,11 +1,19 @@
 // Formatting helpers for the plain-English sentences people read.
 
-export function formatMoney(amount: number, currency = "INR"): string {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
+export const DEFAULT_CURRENCY = "INR";
+
+export function formatMoney(amount: number, currency = DEFAULT_CURRENCY): string {
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    // Workspace.currency is free text. An unknown code must never fail a request or hide the unit,
+    // so show the code itself ("XYZ 3,900") instead of guessing a symbol.
+    return `${currency} ${amount.toLocaleString("en-IN")}`;
+  }
 }
 
 export function formatDate(date: Date): string {
