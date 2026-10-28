@@ -21,7 +21,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CLIENT_ORIGIN
-        value: https://agentguard.onrender.com
+        value: https://agentguard.sritaraksolutions.in
       - key: DEMO_MODE
         value: "true"
       - key: SEED_ON_START

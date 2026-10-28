@@ -11,7 +11,7 @@ AgentGuard sits between AI agents and a company's systems. Every action an agent
 
 > Built with MongoDB, Express, React and Node.js (TypeScript throughout). 50 automated tests, including concurrency and security cases.
 
-**Live demo:** LIVE_DEMO_URL (free hosting: the first visit can take about a minute to wake up). Click any demo account to sign in.
+**Live demo:** [agentguard.sritaraksolutions.in](https://agentguard.sritaraksolutions.in) (free hosting: the first visit can take about a minute to wake up). Click any demo account to sign in.
 
 ![Approvals inbox: a manager sees the agent's request as one sentence, why it needs a person, and Approve / Reject](docs/screenshots/approvals.png)
 
