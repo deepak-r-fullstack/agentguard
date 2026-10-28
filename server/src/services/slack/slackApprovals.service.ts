@@ -6,7 +6,7 @@ import { User } from "../../models/user.model";
 import { Workspace } from "../../models/workspace.model";
 import { logger, serializeError } from "../../utils/logger";
 import { approveAction, rejectAction } from "../actions/guard.service";
-import { APPROVE_ACTION_ID, callSlack, isSlackConfigured, REJECT_ACTION_ID } from "./slack.service";
+import { APPROVE_ACTION_ID, callSlack, isSlackConfigured, REJECT_ACTION_ID, SlackApiError } from "./slack.service";
 
 // ---------------------------------------------------------------------------
 // Slack approvals, inbound side: a person clicks Approve / Reject in Slack.
@@ -58,8 +58,14 @@ async function replyOnlyToClicker(responseUrl: string | undefined, text: string)
 }
 
 async function findSlackEmail(slackUserId: string): Promise<string> {
-  const result = await callSlack("users.info", { user: slackUserId });
-  return (result.user?.profile?.email || "").toLowerCase().trim();
+  try {
+    const result = await callSlack("users.info", { user: slackUserId });
+    return (result.user?.profile?.email || "").toLowerCase().trim();
+  } catch (err) {
+    // A user Slack does not know is an answer ("no email"), not a crash.
+    if (err instanceof SlackApiError && err.code === "user_not_found") return "";
+    throw err;
+  }
 }
 
 export async function handleSlackInteraction(interaction: Interaction): Promise<void> {

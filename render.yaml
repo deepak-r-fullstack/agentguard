@@ -28,6 +28,11 @@ services:
         value: "true"
       - key: LLM_PROVIDER
         value: none
+      # Optional Slack approvals (see docs/slack-setup.md). Leave empty to keep them off.
+      - key: SLACK_BOT_TOKEN
+        sync: false # "Bot User OAuth Token" (xoxb-...) from the Slack app
+      - key: SLACK_SIGNING_SECRET
+        sync: false # "Signing Secret" from the Slack app's Basic Information page
       # The test-only in-memory MongoDB is not needed on the server; skip its download.
       - key: MONGOMS_DISABLE_POSTINSTALL
         value: "1"

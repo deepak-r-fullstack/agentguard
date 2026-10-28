@@ -106,7 +106,7 @@ export function buildApprovalMessage(record: MessageRecord) {
   const actionId = String(record._id);
   const reasons = record.decisionReasons.map((reason) => `• ${escapeSlackText(reason)}`).join("\n");
   return {
-    text: `Approval needed: ${record.summary}`,
+    text: `Approval needed: ${escapeSlackText(record.summary)}`,
     blocks: [
       ...summaryBlocks(record, "Approval needed"),
       ...(reasons ? [{ type: "section", text: { type: "mrkdwn", text: `*Why a person has to decide*\n${reasons}` } }] : []),
@@ -130,7 +130,7 @@ export function buildDecisionMessage(record: MessageRecord & Pick<ActionRecordDo
   } else line = `✅ *Approved by ${escapeSlackText(record.approvedBy)}* and done`;
 
   return {
-    text: `${record.status === "rejected" ? "Rejected" : "Approved"}: ${record.summary}`,
+    text: `${record.status === "rejected" ? "Rejected" : "Approved"}: ${escapeSlackText(record.summary)}`,
     blocks: [...summaryBlocks(record, "Decision made"), { type: "section", text: { type: "mrkdwn", text: line } }],
   };
 }
