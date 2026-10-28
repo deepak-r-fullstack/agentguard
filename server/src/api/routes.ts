@@ -13,6 +13,7 @@ import * as policiesController from "../controllers/policies.controller";
 import * as auditController from "../controllers/audit.controller";
 import * as agentsController from "../controllers/agents.controller";
 import * as demoController from "../controllers/demo.controller";
+import * as mcpController from "../controllers/mcp.controller";
 import { NotFoundError } from "../helpers/errors";
 
 const router = Router();
@@ -42,6 +43,11 @@ router.post(
   asyncHandler(agentApiController.submitAgentAction)
 );
 router.get("/agent/actions/:id", agentLimiter, authenticateAgent, asyncHandler(agentApiController.getAgentActionStatus));
+
+// ---------- agents: MCP (Model Context Protocol), same guard behind it ----------
+router.post("/mcp", agentLimiter, authenticateAgent, asyncHandler(mcpController.handleMcpRequest));
+router.get("/mcp", agentLimiter, mcpController.rejectMcpMethod);
+router.delete("/mcp", agentLimiter, mcpController.rejectMcpMethod);
 
 // ---------- people: actions, approvals, undo ----------
 router.get(

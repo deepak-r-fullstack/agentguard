@@ -403,6 +403,12 @@ export function getActionDefinition(key: string): ActionDefinition {
   return definition;
 }
 
+// The full definitions (including each action's params schema). The MCP server turns
+// every one of these into a tool, so a new action shows up for MCP clients with no extra work.
+export function listActionDefinitions(): ActionDefinition[] {
+  return [...definitions];
+}
+
 // Public description of the catalog, used by the UI and by the AI rule drafter.
 export function describeActionCatalog() {
   return definitions.map((definition) => ({

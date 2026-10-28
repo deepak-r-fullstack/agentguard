@@ -13,6 +13,7 @@
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
