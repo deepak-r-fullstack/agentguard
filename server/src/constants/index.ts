@@ -53,6 +53,10 @@ export const AUDIT_EVENT_TYPES = [
   "policy_updated",
   "policy_deleted",
   "integration_updated",
+  "user_added",
+  "user_role_changed",
+  "user_deactivated",
+  "user_reactivated",
   "demo_reset",
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
@@ -62,3 +66,7 @@ export type ActorType = (typeof ACTOR_TYPES)[number];
 
 // When no rule matches an action, the safe default is to ask a human.
 export const DEFAULT_DECISION: Decision = "require_approval";
+
+// Changes to who can sign in. "Reset demo data" keeps these entries, so the record of
+// who was added or switched off never disappears.
+export const TEAM_AUDIT_EVENT_TYPES: AuditEventType[] = ["user_added", "user_role_changed", "user_deactivated", "user_reactivated"];

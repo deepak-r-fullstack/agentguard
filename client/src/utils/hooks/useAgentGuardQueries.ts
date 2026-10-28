@@ -6,10 +6,11 @@ import {
   demoService,
   integrationService,
   policyService,
+  teamService,
 } from "utils/services/api_services/agentguard_service";
 import { getErrorMessage } from "utils/services/api_services/apiClient";
 import { showToast } from "utils/store/toastStore";
-import { PolicyInput } from "utils/types";
+import { PolicyInput, UserRole } from "utils/types";
 
 // React Query hooks, one per screen need. Mutations refresh every list an action
 // can change, so screens never show stale state after Approve or Undo.
@@ -24,6 +25,7 @@ export const queryKeys = {
   company: ["company"] as const,
   agents: ["agents"] as const,
   connections: ["connections"] as const,
+  team: ["team"] as const,
 };
 
 // Approvals arrive from agents at any time, so these lists refresh themselves.
@@ -82,6 +84,10 @@ export function useCompanyData() {
 
 export function useAgents() {
   return useQuery({ queryKey: queryKeys.agents, queryFn: () => agentService.list().then((response) => response.data) });
+}
+
+export function useTeam() {
+  return useQuery({ queryKey: queryKeys.team, queryFn: () => teamService.list().then((response) => response.data) });
 }
 
 export function useConnections() {
@@ -188,6 +194,53 @@ export function useRotateAgentKey() {
     mutationFn: (id: string) => agentService.rotateKey(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
     onError: (error) => showToast(getErrorMessage(error), "error"),
+  });
+}
+
+// Every team change is also an Audit log entry, so both lists are refreshed.
+function useRefreshTeam() {
+  const queryClient = useQueryClient();
+  return () => {
+    ["team", "audit"].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+  };
+}
+
+export function useAddTeamMember() {
+  const refresh = useRefreshTeam();
+  return useMutation({
+    mutationFn: teamService.add,
+    onSuccess: refresh,
+    onError: (error) => showToast(getErrorMessage(error), "error"),
+  });
+}
+
+export function useChangeTeamRole() {
+  const refresh = useRefreshTeam();
+  return useMutation({
+    mutationFn: (input: { id: string; role: UserRole }) => teamService.changeRole(input.id, input.role),
+    onSuccess: (response) => {
+      showToast(response.message);
+      refresh();
+    },
+    onError: (error) => {
+      showToast(getErrorMessage(error), "error");
+      refresh();
+    },
+  });
+}
+
+export function useSetTeamMemberActive() {
+  const refresh = useRefreshTeam();
+  return useMutation({
+    mutationFn: (input: { id: string; active: boolean }) => (input.active ? teamService.reactivate(input.id) : teamService.deactivate(input.id)),
+    onSuccess: (response) => {
+      showToast(response.message);
+      refresh();
+    },
+    onError: (error) => {
+      showToast(getErrorMessage(error), "error");
+      refresh();
+    },
   });
 }
 

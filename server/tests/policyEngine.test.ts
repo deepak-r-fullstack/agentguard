@@ -131,3 +131,25 @@ describe("evaluatePolicies", () => {
     expect(result.matchedRuleIds).toEqual(["b"]);
   });
 });
+
+describe("daily limit reasons with money", () => {
+  const cap = [rule({ id: "cap", name: "Daily cap", effect: "deny", dailyLimit: { scope: "agent", sumField: "facts.amount", max: 20000 } })];
+  const input = { action: "booking.cancel", irreversible: false, usageByRuleId: { cap: 17400 }, context: context(4900) };
+
+  it("keeps the plain numbers when no currency is given (as before)", () => {
+    const result = evaluatePolicies(cap, input);
+    expect(result.reasons[0]).toContain("22,300, over the limit of 20,000");
+    expect(result.reasons[0]).not.toContain("₹");
+  });
+
+  it("names the currency when the limit adds up a money field", () => {
+    const result = evaluatePolicies(cap, { ...input, money: { currency: "INR", fields: ["facts.amount"] } });
+    expect(result.reasons[0]).toContain("₹22,300, over the limit of ₹20,000");
+  });
+
+  it("does not add a currency to a limit on something that is not money", () => {
+    const result = evaluatePolicies(cap, { ...input, money: { currency: "INR", fields: ["facts.discountAmount"] } });
+    expect(result.reasons[0]).toContain("22,300, over the limit of 20,000");
+    expect(result.reasons[0]).not.toContain("₹");
+  });
+});

@@ -3,6 +3,7 @@ import request from "supertest";
 import { createApp } from "../src/app";
 import { Booking } from "../src/models/demo.model";
 import { ActionRecord } from "../src/models/actionRecord.model";
+import { Workspace } from "../src/models/workspace.model";
 import * as guardService from "../src/services/actions/guard.service";
 import { DEMO_PASSWORD, seedDemoData, SeedResult } from "../src/services/demo/demo.service";
 import { startTestDb, stopTestDb } from "./helpers/testDb";
@@ -241,6 +242,43 @@ describe("MCP tool calls go through the guard", () => {
     const failed = res.body.error || res.body.result?.isError;
     expect(failed).toBeTruthy();
     expect((await Booking.findOne({ code: "BK-1002" }).lean())?.status).toBe("confirmed");
+  });
+});
+
+describe("money in MCP tool results", () => {
+  it("sends the currency and a formatted amount next to the number, and keeps the old fields", async () => {
+    const outcome = await callTool("booking_cancel", { bookingCode: "BK-1003" });
+    expect(outcome.isError).toBe(false);
+    expect(outcome.json().currency).toBe("INR");
+    expect(outcome.json().result).toEqual({
+      bookingCode: "BK-1003",
+      status: "cancelled",
+      refundAmount: 3900,
+      currency: "INR",
+      refundAmountFormatted: "₹3,900",
+    });
+    expect(Object.keys(outcome.json())).toEqual(expect.arrayContaining(["actionId", "status", "decision", "message", "reasons", "result"]));
+  });
+
+  it("formats the facts while waiting, and again through get_action_status", async () => {
+    const waiting = await callTool("booking_cancel", { bookingCode: "BK-1001" });
+    expect(waiting.json().facts).toMatchObject({ amount: 7500, currency: "INR", amountFormatted: "₹7,500" });
+    const checked = await callTool("get_action_status", { actionId: waiting.json().actionId });
+    expect(checked.json().facts).toMatchObject({ amount: 7500, currency: "INR", amountFormatted: "₹7,500" });
+    expect(checked.json().message).toContain("get_action_status");
+  });
+
+  it("puts the currency in the reasons a refusal gives", async () => {
+    for (const code of ["BK-1002", "BK-1003", "BK-1004", "BK-1006"]) await callTool("booking_cancel", { bookingCode: code });
+    const refused = await callTool("booking_cancel", { bookingCode: "BK-1007" });
+    expect(refused.json().status).toBe("denied");
+    expect(refused.json().reasons.join(" ")).toContain("₹22,300");
+  });
+
+  it("uses the company's own currency", async () => {
+    await Workspace.updateOne({ slug: "acme-travels" }, { $set: { currency: "USD" } });
+    const outcome = await callTool("booking_cancel", { bookingCode: "BK-1003" });
+    expect(outcome.json().result).toMatchObject({ refundAmount: 3900, currency: "USD", refundAmountFormatted: "$3,900" });
   });
 });
 

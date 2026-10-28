@@ -40,11 +40,18 @@ export function verifyToken(token: string): AuthTokenPayload {
   }
 }
 
+// Users created before the "active" field existed have no value, and they are active.
+export function isUserActive(user: { active?: boolean | null }) {
+  return user.active !== false;
+}
+
 export async function login(email: string, password: string) {
   const user = await User.findOne({ email: email.toLowerCase().trim() }).select("+passwordHash");
   // Same message for "no such user" and "wrong password", so emails cannot be guessed.
   const passwordOk = user ? await bcrypt.compare(password, user.passwordHash) : false;
   if (!user || !passwordOk) throw new UnauthorizedError("Email or password is not correct.");
+  // Only said after the password is right, so this message cannot be used to find out who has an account.
+  if (!isUserActive(user)) throw new UnauthorizedError("This account has been turned off. Please ask an admin at your company.");
 
   const workspace = await Workspace.findById(user.workspaceId).lean();
   return {

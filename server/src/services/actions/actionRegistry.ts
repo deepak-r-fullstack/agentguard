@@ -2,7 +2,8 @@ import { Types } from "mongoose";
 import { z } from "zod";
 import { Booking, BookingDoc, Customer, CustomerDoc, Outbox } from "../../models/demo.model";
 import { BadRequestError, ConflictError, NotFoundError } from "../../helpers/errors";
-import { daysBetween, formatDate, formatMoney } from "../../utils/format";
+import { DEFAULT_CURRENCY, daysBetween, formatDate, formatMoney } from "../../utils/format";
+import { MoneyFields } from "./money.service";
 
 // ---------------------------------------------------------------------------
 // The action registry: the ONLY list of things an agent may do.
@@ -16,6 +17,8 @@ import { daysBetween, formatDate, formatMoney } from "../../utils/format";
 
 export interface ActionContext {
   workspaceId: Types.ObjectId;
+  // The workspace's currency for the plain-English summary. Only prepare() needs it.
+  currency?: string;
 }
 
 export interface RuleField {
@@ -36,6 +39,8 @@ export interface ActionDefinition<P = any, S = any> {
   irreversible: boolean;
   paramsSchema: z.ZodType<P>;
   ruleFields: RuleField[];
+  // Which facts / result fields are money, so agents always get them with their currency.
+  moneyFields: MoneyFields;
   exampleParams: P;
   prepare: (params: P, ctx: ActionContext) => Promise<PreparedAction>;
   snapshot?: (params: P, ctx: ActionContext) => Promise<S>;
@@ -87,6 +92,7 @@ const cancelBooking: ActionDefinition<CancelBookingParams, CancelBookingSnapshot
   irreversible: false,
   paramsSchema: cancelBookingParams,
   exampleParams: { bookingCode: "BK-1001" },
+  moneyFields: { facts: ["amount"], result: ["refundAmount"] },
   ruleFields: [
     { path: "facts.amount", label: "Refund amount (₹)", type: "number" },
     { path: "facts.daysUntilStart", label: "Days until the booking starts", type: "number" },
@@ -102,7 +108,7 @@ const cancelBooking: ActionDefinition<CancelBookingParams, CancelBookingSnapshot
         daysUntilStart: daysBetween(new Date(), booking.startsAt),
         customerCode: customer.code,
       },
-      summary: `Cancel booking ${booking.code} (${booking.title}) for ${customer.name} and refund ${formatMoney(booking.amount)}`,
+      summary: `Cancel booking ${booking.code} (${booking.title}) for ${customer.name} and refund ${formatMoney(booking.amount, ctx.currency ?? DEFAULT_CURRENCY)}`,
     };
   },
   async snapshot(params, ctx) {
@@ -158,6 +164,7 @@ const rescheduleBooking: ActionDefinition<RescheduleBookingParams, RescheduleSna
   irreversible: false,
   paramsSchema: rescheduleBookingParams,
   exampleParams: { bookingCode: "BK-1002", newStartDate: "2026-12-20" },
+  moneyFields: { facts: ["amount"], result: [] },
   ruleFields: [
     { path: "facts.amount", label: "Booking amount (₹)", type: "number" },
     { path: "facts.shiftDays", label: "Days moved (+ later, − earlier)", type: "number" },
@@ -232,6 +239,7 @@ const applyDiscount: ActionDefinition<ApplyDiscountParams, DiscountSnapshot> = {
   irreversible: false,
   paramsSchema: applyDiscountParams,
   exampleParams: { bookingCode: "BK-1003", percent: 10 },
+  moneyFields: { facts: ["amount", "discountAmount"], result: ["newAmount"] },
   ruleFields: [
     { path: "facts.percent", label: "Discount (%)", type: "number" },
     { path: "facts.discountAmount", label: "Discount amount (₹)", type: "number" },
@@ -251,7 +259,7 @@ const applyDiscount: ActionDefinition<ApplyDiscountParams, DiscountSnapshot> = {
         discountAmount,
         customerCode: customer.code,
       },
-      summary: `Give ${customer.name} a ${params.percent}% discount (${formatMoney(discountAmount)}) on booking ${booking.code}`,
+      summary: `Give ${customer.name} a ${params.percent}% discount (${formatMoney(discountAmount, ctx.currency ?? DEFAULT_CURRENCY)}) on booking ${booking.code}`,
     };
   },
   async snapshot(params, ctx) {
@@ -307,6 +315,7 @@ const updateCustomerEmail: ActionDefinition<UpdateEmailParams, UpdateEmailSnapsh
   irreversible: false,
   paramsSchema: updateEmailParams,
   exampleParams: { customerCode: "CU-101", email: "priya.new@example.com" },
+  moneyFields: { facts: [], result: [] },
   ruleFields: [
     { path: "facts.sameDomain", label: "New email has the same domain", type: "boolean" },
     ...COMMON_FIELDS,
@@ -363,6 +372,7 @@ const sendCustomerEmail: ActionDefinition<SendEmailParams> = {
   irreversible: true,
   paramsSchema: sendEmailParams,
   exampleParams: { customerCode: "CU-101", subject: "Your booking", body: "Hello! Your booking is confirmed." },
+  moneyFields: { facts: [], result: [] },
   ruleFields: [...COMMON_FIELDS],
   async prepare(params, ctx) {
     const customer = await findCustomerByCode(params.customerCode, ctx);

@@ -6,6 +6,7 @@ import { User } from "../../models/user.model";
 import { Workspace } from "../../models/workspace.model";
 import { logger, serializeError } from "../../utils/logger";
 import { approveAction, rejectAction } from "../actions/guard.service";
+import { isUserActive } from "../auth/auth.service";
 import { APPROVE_ACTION_ID, callSlack, isSlackConfigured, REJECT_ACTION_ID, SlackApiError } from "./slack.service";
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,7 @@ export async function handleSlackInteraction(interaction: Interaction): Promise<
 
     const user = await User.findOne({ workspaceId, email }).lean();
     if (!user) return reply("Your Slack email does not match a person in AgentGuard for this company.");
+    if (!isUserActive(user)) return reply("Your AgentGuard account has been turned off. Please ask an admin at your company.");
     if (user.role !== "admin" && user.role !== "manager") return reply("Only managers and admins can approve or reject requests.");
 
     const actor = { type: "user" as const, id: String(user._id), name: user.name, email: user.email };

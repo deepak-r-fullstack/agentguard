@@ -4,7 +4,7 @@ import { z } from "zod";
 import { successResponseWithData } from "../helpers/response";
 import { getRequestAgent } from "../middlewares/auth.middleware";
 import { describeActionCatalog } from "../services/actions/actionRegistry";
-import { getAction, requestAction, toAgentResponse } from "../services/actions/guard.service";
+import { describeForAgent, getAction, requestAction } from "../services/actions/guard.service";
 import { ForbiddenError } from "../helpers/errors";
 
 // The API that AI agents call (authenticated with x-agent-key).
@@ -23,7 +23,8 @@ export async function submitAgentAction(_req: Request, res: Response) {
   const record = await requestAction(agent, input);
   // 202 Accepted when a person still has to decide; 200 otherwise.
   const statusCode = record.status === "pending_approval" ? 202 : 200;
-  return successResponseWithData(res, toAgentResponse(record).message, toAgentResponse(record), statusCode);
+  const response = await describeForAgent(record);
+  return successResponseWithData(res, response.message, response, statusCode);
 }
 
 export async function getAgentActionStatus(req: Request, res: Response) {
@@ -31,7 +32,7 @@ export async function getAgentActionStatus(req: Request, res: Response) {
   const record = await getAction(agent.workspaceId as Types.ObjectId, req.params.id);
   // Agents can only read their own actions.
   if (String(record.agentId) !== String(agent._id)) throw new ForbiddenError();
-  return successResponseWithData(res, "Action status.", toAgentResponse(record));
+  return successResponseWithData(res, "Action status.", await describeForAgent(record));
 }
 
 export async function getAgentCatalog(_req: Request, res: Response) {

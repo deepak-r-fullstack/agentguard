@@ -317,6 +317,15 @@ describe("approving and rejecting in Slack", () => {
     expect((await ActionRecord.findById(actionId).lean())?.status).toBe("pending_approval");
   });
 
+  it("does not let a person whose account was turned off decide", async () => {
+    const actionId = await requestApprovalPostedToSlack();
+    await User.updateOne({ email: "manager@acme.test" }, { $set: { active: false } });
+    await sendClick(clickBody("U_MANAGER", actionId));
+    await waitFor(() => ephemeralReplies.length === 1);
+    expect(ephemeralReplies[0]).toContain("turned off");
+    expect((await ActionRecord.findById(actionId).lean())?.status).toBe("pending_approval");
+  });
+
   it("does not let someone from another company decide", async () => {
     const actionId = await requestApprovalPostedToSlack();
     await sendClick(clickBody("U_GLOBEX", actionId)); // a real Globex manager, but Acme's request
