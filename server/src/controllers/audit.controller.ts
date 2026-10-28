@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ACTOR_TYPES, AUDIT_EVENT_TYPES } from "../constants";
 import { successResponseWithData } from "../helpers/response";
 import { getRequestUser } from "../middlewares/auth.middleware";
-import { auditEventsToCsv, listAuditEvents } from "../services/audit/audit.service";
+import { auditEventsToCsv, listAuditEvents, verifyAuditChain } from "../services/audit/audit.service";
 
 export const auditQuerySchema = z.object({
   type: z.enum(AUDIT_EVENT_TYPES).optional(),
@@ -43,4 +43,12 @@ export async function exportAuditCsv(_req: Request, res: Response) {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
   return res.status(200).send(auditEventsToCsv(events));
+}
+
+// Walks this company's whole chain. A broken chain is an ANSWER (ok: false), not an error, so it is a normal 200.
+export async function verifyAudit(_req: Request, res: Response) {
+  const user = getRequestUser(res);
+  const check = await verifyAuditChain(user.workspaceId);
+  const message = check.ok ? "The audit history is intact." : "The audit history has been changed.";
+  return successResponseWithData(res, message, { ...check, verifiedAt: new Date() });
 }

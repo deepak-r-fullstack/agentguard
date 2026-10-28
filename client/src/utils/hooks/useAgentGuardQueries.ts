@@ -6,6 +6,7 @@ import {
   demoService,
   integrationService,
   policyService,
+  settingsService,
   teamService,
 } from "utils/services/api_services/agentguard_service";
 import { getErrorMessage } from "utils/services/api_services/apiClient";
@@ -25,6 +26,7 @@ export const queryKeys = {
   company: ["company"] as const,
   agents: ["agents"] as const,
   connections: ["connections"] as const,
+  approvalSettings: ["settings", "approvals"] as const,
   team: ["team"] as const,
 };
 
@@ -71,6 +73,21 @@ export function useAuditEvents(filters: { type?: string; actorType?: string } = 
   return useQuery({
     queryKey: queryKeys.audit(filters),
     queryFn: () => auditService.list(filters).then((response) => response.data),
+  });
+}
+
+// Shares the "audit" key prefix, so every refresh of the audit log also re-checks the history.
+export function useAuditVerification() {
+  return useQuery({
+    queryKey: ["audit", "verify"] as const,
+    queryFn: () => auditService.verify().then((response) => response.data),
+  });
+}
+
+export function useApprovalSettings() {
+  return useQuery({
+    queryKey: queryKeys.approvalSettings,
+    queryFn: () => settingsService.getApprovals().then((response) => response.data),
   });
 }
 
@@ -241,6 +258,18 @@ export function useSetTeamMemberActive() {
       showToast(getErrorMessage(error), "error");
       refresh();
     },
+  });
+}
+
+export function useSaveApprovalSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (approvalExpiryHours: number) => settingsService.saveApprovals(approvalExpiryHours),
+    onSuccess: (response) => {
+      showToast(response.message);
+      ["settings", "audit"].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+    },
+    onError: (error) => showToast(getErrorMessage(error), "error"),
   });
 }
 

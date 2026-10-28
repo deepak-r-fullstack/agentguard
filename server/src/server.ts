@@ -5,6 +5,7 @@ import { connectToDatabase, disconnectFromDatabase } from "./loaders/database";
 import { logger, serializeError } from "./utils/logger";
 import { Workspace } from "./models/workspace.model";
 import { seedDemoData } from "./services/demo/demo.service";
+import { startMaintenanceJobs } from "./loaders/maintenance";
 
 // Unhandled rejections and uncaught exceptions: log, then exit so the platform
 // restarts a clean process instead of serving with corrupted state.
@@ -27,6 +28,9 @@ async function startServer() {
       logger.info("demo data created on first start");
     }
 
+    // Settle actions a crash left half-done, and expire approvals nobody decided. Safe on several servers at once.
+    const stopMaintenanceJobs = startMaintenanceJobs();
+
     const app = createApp();
     const server = app.listen(env.PORT, () => {
       logger.info("server listening", { port: env.PORT, environment: env.NODE_ENV, demoMode: env.DEMO_MODE });
@@ -34,6 +38,7 @@ async function startServer() {
 
     const shutdown = (signal: string) => {
       logger.info("shutting down", { signal });
+      stopMaintenanceJobs();
       server.close(async () => {
         await disconnectFromDatabase();
         process.exit(0);

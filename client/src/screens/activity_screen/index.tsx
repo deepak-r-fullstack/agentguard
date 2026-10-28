@@ -21,6 +21,7 @@ const FILTERS = [
   { label: "Waiting", status: "pending_approval" },
   { label: "Blocked", status: "denied" },
   { label: "Rejected", status: "rejected" },
+  { label: "Expired", status: "expired" },
   { label: "Undone", status: "undone" },
   { label: "Failed", status: "failed" },
 ] as const;

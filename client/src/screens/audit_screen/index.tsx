@@ -7,6 +7,7 @@ import { getErrorMessage } from "utils/services/api_services/apiClient";
 import { formatDateTime } from "utils/helper_functions/format";
 import { showToast } from "utils/store/toastStore";
 import { useAuthStore } from "utils/store/authStore";
+import { HistoryBadge } from "./HistoryBadge";
 
 const ACTOR_FILTERS = [
   { label: "Everyone", value: undefined },
@@ -48,11 +49,14 @@ export const AuditScreen = () => {
         title="Audit log"
         description="A permanent record of every request, decision, approval and undo. Entries are never edited."
         actions={
-          canExport && (
-            <DisplayButton icon={<Download className="h-4 w-4" aria-hidden />} loading={downloading} onClick={download}>
-              Download CSV
-            </DisplayButton>
-          )
+          <>
+            <HistoryBadge />
+            {canExport && (
+              <DisplayButton icon={<Download className="h-4 w-4" aria-hidden />} loading={downloading} onClick={download}>
+                Download CSV
+              </DisplayButton>
+            )}
+          </>
         }
       />
 

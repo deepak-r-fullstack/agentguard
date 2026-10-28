@@ -27,6 +27,16 @@ export function timeAgo(value: string) {
   return formatDateTime(value);
 }
 
+// "in 3 hr", "in 20 min": how long until a waiting request expires.
+export function timeUntil(value: string) {
+  const minutes = Math.round((new Date(value).getTime() - Date.now()) / 60000);
+  if (minutes < 1) return "any moment now";
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `in ${hours} hr`;
+  return `in ${Math.round(hours / 24)} days`;
+}
+
 // Words people see for each status. Kept in one place so every screen says the same thing.
 export const STATUS_META: Record<ActionStatus, { label: string; tone: "done" | "waiting" | "refused" | "undone" | "neutral" }> = {
   pending_approval: { label: "Waiting for you", tone: "waiting" },
@@ -34,6 +44,7 @@ export const STATUS_META: Record<ActionStatus, { label: string; tone: "done" | "
   done: { label: "Done", tone: "done" },
   denied: { label: "Blocked by a rule", tone: "refused" },
   rejected: { label: "Rejected", tone: "refused" },
+  expired: { label: "Expired", tone: "neutral" },
   failed: { label: "Failed", tone: "refused" },
   undoing: { label: "Undoing", tone: "neutral" },
   undone: { label: "Undone", tone: "undone" },

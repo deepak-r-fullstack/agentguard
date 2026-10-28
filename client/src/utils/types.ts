@@ -6,6 +6,7 @@ export type ActionStatus =
   | "pending_approval"
   | "denied"
   | "rejected"
+  | "expired"
   | "executing"
   | "done"
   | "failed"
@@ -56,6 +57,7 @@ export interface AgentAction {
   rejectedBy: string;
   undoneBy: string;
   createdAt: string;
+  expiresAt?: string;
   decidedAt?: string;
   executedAt?: string;
   undoneAt?: string;
@@ -126,6 +128,21 @@ export interface AuditEvent {
   onBehalfOf: string;
   summary: string;
   createdAt: string;
+}
+
+// Result of walking the audit log's hash chain (GET /audit/verify).
+export type AuditVerification =
+  | { ok: true; checked: number; legacyEvents: number; headHash: string; verifiedAt: string }
+  | {
+      ok: false;
+      checked: number;
+      legacyEvents: number;
+      brokenAt: { seq: number; id: string; type: string; createdAt: string; reason: string };
+      verifiedAt: string;
+    };
+
+export interface ApprovalSettings {
+  approvalExpiryHours: number;
 }
 
 export interface CompanyData {

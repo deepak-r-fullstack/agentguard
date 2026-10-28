@@ -11,11 +11,13 @@ export type Decision = (typeof DECISIONS)[number];
 // Lifecycle of one agent action.
 //   pending_approval -> executing -> done -> undoing -> undone
 //                    -> rejected       \-> failed
+//                    -> expired (nobody decided in time)
 //   denied (never executed)
 export const ACTION_STATUSES = [
   "pending_approval",
   "denied",
   "rejected",
+  "expired",
   "executing",
   "done",
   "failed",
@@ -48,16 +50,19 @@ export const AUDIT_EVENT_TYPES = [
   "action_executed",
   "action_failed",
   "action_undone",
+  "action_expired",
   "undo_failed",
   "policy_created",
   "policy_updated",
   "policy_deleted",
   "integration_updated",
+  "settings_updated",
   "user_added",
   "user_role_changed",
   "user_deactivated",
   "user_reactivated",
   "demo_reset",
+  "chain_started",
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
 
@@ -70,3 +75,11 @@ export const DEFAULT_DECISION: Decision = "require_approval";
 // Changes to who can sign in. "Reset demo data" keeps these entries, so the record of
 // who was added or switched off never disappears.
 export const TEAM_AUDIT_EVENT_TYPES: AuditEventType[] = ["user_added", "user_role_changed", "user_deactivated", "user_reactivated"];
+
+// Approvals that nobody decides expire after this many hours, unless an admin chose another number.
+export const DEFAULT_APPROVAL_EXPIRY_HOURS = 24;
+export const MIN_APPROVAL_EXPIRY_HOURS = 1;
+export const MAX_APPROVAL_EXPIRY_HOURS = 24 * 30;
+
+// An action stuck in "executing" or "undoing" for longer than this was interrupted (a crash, a restart).
+export const INTERRUPTED_ACTION_TIMEOUT_MS = 10 * 60 * 1000;

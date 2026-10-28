@@ -6,6 +6,7 @@ import { Booking, Customer, Outbox } from "../../models/demo.model";
 import { Policy } from "../../models/policy.model";
 import { ActionRecord } from "../../models/actionRecord.model";
 import { AuditEvent } from "../../models/auditEvent.model";
+import { UsageCounter } from "../../models/usageCounter.model";
 import { generateApiKey, hashPassword } from "../auth/auth.service";
 import { PolicyInput } from "../policy/policySchemas";
 import { Actor, recordAuditEvent } from "../audit/audit.service";
@@ -162,15 +163,15 @@ async function seedCompanyData(workspaceId: Types.ObjectId, company: DemoCompany
   await Policy.insertMany(company.policies.map((policy) => ({ ...policy, workspaceId })));
 }
 
-// keepTeamHistory: "Reset demo data" keeps the people, so it also keeps the record of who added or switched them off.
-async function clearWorkspaceData(workspaceId: Types.ObjectId, { keepTeamHistory = false } = {}) {
+async function clearWorkspaceData(workspaceId: Types.ObjectId) {
   await Promise.all([
     Customer.deleteMany({ workspaceId }),
     Booking.deleteMany({ workspaceId }),
     Outbox.deleteMany({ workspaceId }),
     Policy.deleteMany({ workspaceId }),
     ActionRecord.deleteMany({ workspaceId }),
-    AuditEvent.deleteMany(keepTeamHistory ? { workspaceId, type: { $nin: TEAM_AUDIT_EVENT_TYPES } } : { workspaceId }),
+    UsageCounter.deleteMany({ workspaceId }),
+    AuditEvent.deleteMany({ workspaceId }),
   ]);
 }
 
@@ -207,13 +208,38 @@ export async function seedDemoData(): Promise<SeedResult> {
   return result;
 }
 
-/** Puts one workspace's company data, rules and history back to the start. Keeps users (including people added on the Team screen) and agent keys. */
+/**
+ * Puts one workspace's company data, rules and history back to the start. Keeps users (including people added on the Team screen) and agent keys.
+ * The audit log starts a NEW hash chain with a "chain_started" entry. The record of who was added or switched off is
+ * kept: those entries are written again at the start of the new chain, with their original times.
+ */
 export async function resetWorkspaceDemoData(workspaceId: Types.ObjectId, actor: Actor) {
   const workspace = await Workspace.findById(workspaceId).lean();
   const company = DEMO_COMPANIES.find((candidate) => candidate.slug === workspace?.slug);
   if (!company) return false;
-  await clearWorkspaceData(workspaceId, { keepTeamHistory: true });
+
+  const keptTeamHistory = await AuditEvent.find({ workspaceId, type: { $in: TEAM_AUDIT_EVENT_TYPES } })
+    .sort({ createdAt: 1, _id: 1 })
+    .lean();
+  await clearWorkspaceData(workspaceId);
   await seedCompanyData(workspaceId, company);
+
+  await recordAuditEvent({
+    workspaceId,
+    type: "chain_started",
+    actor,
+    summary: "Started a new audit history (the demo data was reset)",
+  });
+  for (const event of keptTeamHistory) {
+    await recordAuditEvent({
+      workspaceId,
+      type: event.type,
+      actor: event.actor as Actor,
+      summary: event.summary,
+      onBehalfOf: event.onBehalfOf,
+      createdAt: event.createdAt,
+    });
+  }
   await recordAuditEvent({ workspaceId, type: "demo_reset", actor, summary: "Reset the demo data to its starting point" });
   return true;
 }

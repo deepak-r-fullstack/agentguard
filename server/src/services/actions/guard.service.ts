@@ -6,7 +6,9 @@ import { AppError, BadRequestError, ConflictError, ForbiddenError, NotFoundError
 import { logger, serializeError } from "../../utils/logger";
 import { Actor, recordAuditEvent, SYSTEM_ACTOR } from "../audit/audit.service";
 import { evaluatePolicies } from "../policy/policyEngine";
-import { getEnabledRules, getUsageByRuleId } from "../policy/policy.service";
+import { getEnabledRules } from "../policy/policy.service";
+import { decideAndReserve, releaseLimitReservations, releaseUnusedReservations } from "../policy/dailyLimit.service";
+import { approvalDeadline, EXPIRED_MESSAGE, expireAction, getApprovalExpiryHours } from "../approvals/approvalExpiry.service";
 import { notifyApprovalRequested, notifyDecisionMade } from "../slack/slack.service";
 import { DEFAULT_CURRENCY } from "../../utils/format";
 import { ActionContext, getActionDefinition } from "./actionRegistry";
@@ -19,6 +21,7 @@ import { getWorkspaceCurrency, withMoneyFields } from "./money.service";
 //   3. Look up trusted facts from the system of record
 //   4. Deterministic policy check (no AI)
 //   5. Record + audit, then execute now, wait for a person, or refuse
+// The daily-limit check and the reservation of its room happen together in step 4, atomically.
 // ---------------------------------------------------------------------------
 
 export interface ActionRequestInput {
@@ -86,20 +89,24 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
   // 3. Facts come from our own lookup, never from the agent's claims.
   const prepared = await definition.prepare(params, ctx);
 
-  // 4. Deterministic policy check.
+  // 4. Deterministic policy check. Daily-limit room is reserved in the same step, so two requests
+  // arriving together cannot both take the last of it.
   const rules = await getEnabledRules(workspaceId);
-  const usageByRuleId = await getUsageByRuleId(workspaceId, rules, agent._id as Types.ObjectId);
-  const evaluation = evaluatePolicies(rules, {
+  const context = { params, facts: prepared.facts, agentName: agent.name, onBehalfOf: input.onBehalfOf };
+  const { evaluation, reservations } = await decideAndReserve({
+    workspaceId,
+    agentId: agent._id as Types.ObjectId,
     action: definition.key,
-    irreversible: definition.irreversible,
-    usageByRuleId,
-    money: { currency, fields: definition.moneyFields.facts.map((field) => `facts.${field}`) },
-    context: {
-      params,
-      facts: prepared.facts,
-      agentName: agent.name,
-      onBehalfOf: input.onBehalfOf,
-    },
+    rules,
+    context,
+    evaluate: (usageByRuleId) =>
+      evaluatePolicies(rules, {
+        action: definition.key,
+        irreversible: definition.irreversible,
+        usageByRuleId,
+        money: { currency, fields: definition.moneyFields.facts.map((field) => `facts.${field}`) },
+        context,
+      }),
   });
 
   const initialStatus: ActionStatus =
@@ -108,6 +115,8 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
   // 5. Record it. A unique index on the idempotency key settles races between identical retries.
   let record;
   try {
+    const expiresAt =
+      evaluation.decision === "require_approval" ? approvalDeadline(await getApprovalExpiryHours(workspaceId)) : undefined;
     record = await ActionRecord.create({
       workspaceId,
       agentId: agent._id,
@@ -125,8 +134,12 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
       status: initialStatus,
       idempotencyKey: input.idempotencyKey,
       decidedAt: evaluation.decision === "require_approval" ? undefined : new Date(),
+      expiresAt,
+      limitReservations: reservations,
     });
   } catch (err) {
+    // No action was created, so the room held for it goes back.
+    await releaseUnusedReservations(workspaceId, reservations);
     if (isDuplicateKeyError(err)) {
       const winner = await ActionRecord.findOne({
         workspaceId,
@@ -177,25 +190,36 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
   return executeAction(record._id, workspaceId, SYSTEM_ACTOR);
 }
 
+// Moves an executing action to its final state. Returns null when something else got there first
+// (the recovery job, after an interruption), so a late finish never overwrites what it decided.
+function settleExecution(record: Pick<ActionRecordDoc, "_id" | "workspaceId">, changes: Record<string, unknown>) {
+  return ActionRecord.findOneAndUpdate(
+    { _id: record._id, workspaceId: record.workspaceId, status: "executing" },
+    { $set: changes },
+    { new: true }
+  ).lean<ActionRecordDoc>();
+}
+
 /**
  * Runs an action that is already in the "executing" state. Saves the
  * before-snapshot first, so undo always has what it needs.
  */
 async function executeAction(actionId: Types.ObjectId, workspaceId: Types.ObjectId, actor: Actor) {
-  const record = await ActionRecord.findOne({ _id: actionId, workspaceId, status: "executing" });
+  const record = await ActionRecord.findOne({ _id: actionId, workspaceId, status: "executing" }).lean<ActionRecordDoc>();
   if (!record) throw new ConflictError("This action is not ready to run.");
 
   const definition = getActionDefinition(record.action);
   const ctx: ActionContext = { workspaceId };
+  const latest = () => ActionRecord.findOne({ _id: actionId, workspaceId }).lean<ActionRecordDoc>() as Promise<ActionRecordDoc>;
 
   try {
     if (definition.snapshot) {
-      record.beforeSnapshot = await definition.snapshot(record.params, ctx);
-      await record.save();
+      const beforeSnapshot = await definition.snapshot(record.params, ctx);
+      await ActionRecord.updateOne({ _id: record._id, workspaceId, status: "executing" }, { $set: { beforeSnapshot } });
     }
     const result = await definition.run(record.params, ctx);
-    record.set({ status: "done", result, executedAt: new Date() });
-    await record.save();
+    const done = await settleExecution(record, { status: "done", result, executedAt: new Date() });
+    if (!done) return latest();
     await recordAuditEvent({
       workspaceId,
       type: "action_executed",
@@ -204,21 +228,36 @@ async function executeAction(actionId: Types.ObjectId, workspaceId: Types.Object
       onBehalfOf: record.onBehalfOf,
       summary: `Done: ${record.summary}`,
     });
+    return done;
   } catch (err) {
     logger.warn("action execution failed", { actionId: String(record._id), action: record.action, ...serializeError(err) });
-    record.set({ status: "failed", errorMessage: safeErrorMessage(err) });
-    await record.save();
+    const errorMessage = safeErrorMessage(err);
+    const failed = await settleExecution(record, { status: "failed", errorMessage });
+    if (!failed) return latest();
+    await releaseLimitReservations(failed); // a failed action no longer counts towards a daily limit
     await recordAuditEvent({
       workspaceId,
       type: "action_failed",
       actionId: record._id,
       actor,
       onBehalfOf: record.onBehalfOf,
-      summary: `Failed: ${record.summary}. ${record.errorMessage}`,
+      summary: `Failed: ${record.summary}. ${errorMessage}`,
     });
+    return failed;
   }
-  return record.toObject() as ActionRecordDoc;
 }
+
+// A decision that missed: say why. A request that is overdue but not yet swept is expired right here,
+// so nobody can approve it in the gap between its deadline and the next sweep.
+async function explainMissedDecision(workspaceId: Types.ObjectId, actionId: string) {
+  const current = await ActionRecord.findOne({ _id: actionId, workspaceId }).select("_id workspaceId status").lean();
+  if (!current) return new NotFoundError("That action was not found.");
+  const expired = current.status === "expired" || (current.status === "pending_approval" && Boolean(await expireAction(current)));
+  return new ConflictError(expired ? EXPIRED_MESSAGE : "This action was already approved or rejected.");
+}
+
+// A request can be decided only while it waits and its deadline has not passed (requests from before expiry existed have none).
+const STILL_WAITING = (now: Date) => ({ status: "pending_approval", $or: [{ expiresAt: { $gt: now } }, { expiresAt: null }] });
 
 export async function approveAction(workspaceId: Types.ObjectId, actionId: string, approver: Actor & { email: string }) {
   const pending = await ActionRecord.findOne({ _id: actionId, workspaceId }).lean<ActionRecordDoc>();
@@ -230,11 +269,11 @@ export async function approveAction(workspaceId: Types.ObjectId, actionId: strin
 
   // Atomic state change: if two managers click Approve together, only one wins.
   const record = await ActionRecord.findOneAndUpdate(
-    { _id: actionId, workspaceId, status: "pending_approval" },
-    { $set: { status: "executing", approvedBy: approver.name, decidedAt: new Date() } },
+    { _id: actionId, workspaceId, ...STILL_WAITING(new Date()) },
+    { $set: { status: "executing", approvedBy: approver.name, decidedAt: new Date() }, $unset: { expiresAt: 1 } },
     { new: true }
   );
-  if (!record) throw new ConflictError("This action was already approved or rejected.");
+  if (!record) throw await explainMissedDecision(workspaceId, actionId);
 
   await recordAuditEvent({
     workspaceId,
@@ -251,15 +290,12 @@ export async function approveAction(workspaceId: Types.ObjectId, actionId: strin
 
 export async function rejectAction(workspaceId: Types.ObjectId, actionId: string, approver: Actor, note = "") {
   const record = await ActionRecord.findOneAndUpdate(
-    { _id: actionId, workspaceId, status: "pending_approval" },
-    { $set: { status: "rejected", rejectedBy: approver.name, decidedAt: new Date() } },
+    { _id: actionId, workspaceId, ...STILL_WAITING(new Date()) },
+    { $set: { status: "rejected", rejectedBy: approver.name, decidedAt: new Date() }, $unset: { expiresAt: 1 } },
     { new: true }
   );
-  if (!record) {
-    const exists = await ActionRecord.exists({ _id: actionId, workspaceId });
-    if (!exists) throw new NotFoundError("That action was not found.");
-    throw new ConflictError("This action was already approved or rejected.");
-  }
+  if (!record) throw await explainMissedDecision(workspaceId, actionId);
+  await releaseLimitReservations(record); // a rejected request no longer counts towards a daily limit
   await recordAuditEvent({
     workspaceId,
     type: "action_rejected",
@@ -290,8 +326,14 @@ export async function undoAction(workspaceId: Types.ObjectId, actionId: string, 
 
   try {
     await definition.undo(record.beforeSnapshot, { workspaceId });
-    record.set({ status: "undone", undoneBy: user.name, undoneAt: new Date() });
-    await record.save();
+    const undone = await ActionRecord.findOneAndUpdate(
+      { _id: record._id, workspaceId, status: "undoing" },
+      { $set: { status: "undone", undoneBy: user.name, undoneAt: new Date() } },
+      { new: true }
+    ).lean<ActionRecordDoc>();
+    // Only the recovery job moves an undo out of "undoing" (after a long interruption); it has then put the action back to "done".
+    if (!undone) throw new ConflictError("This undo took too long and was marked as interrupted. Please check the booking.");
+    await releaseLimitReservations(undone); // an undone action no longer counts towards a daily limit
     await recordAuditEvent({
       workspaceId,
       type: "action_undone",
@@ -300,11 +342,10 @@ export async function undoAction(workspaceId: Types.ObjectId, actionId: string, 
       onBehalfOf: record.onBehalfOf,
       summary: `Undid: ${record.summary}`,
     });
-    return record.toObject() as ActionRecordDoc;
+    return undone;
   } catch (err) {
     // Put it back to "done" so a person can look and try again.
-    record.set({ status: "done" });
-    await record.save();
+    await ActionRecord.updateOne({ _id: record._id, workspaceId, status: "undoing" }, { $set: { status: "done" } });
     await recordAuditEvent({
       workspaceId,
       type: "undo_failed",
@@ -375,6 +416,7 @@ export function toActionDto(record: ActionRecordDoc) {
     rejectedBy: record.rejectedBy,
     undoneBy: record.undoneBy,
     createdAt: record.createdAt,
+    expiresAt: record.status === "pending_approval" ? record.expiresAt : undefined,
     decidedAt: record.decidedAt,
     executedAt: record.executedAt,
     undoneAt: record.undoneAt,
@@ -391,6 +433,7 @@ export function toAgentResponse(record: ActionRecordDoc, currency = DEFAULT_CURR
     pending_approval: "Waiting for a person to approve. Check again later with GET /api/agent/actions/:id.",
     denied: "Not allowed. Do not retry this action; tell the person why.",
     rejected: "A person rejected this action.",
+    expired: "Nobody approved this request in time, so it expired and nothing was done. Ask again if it is still needed.",
     failed: `The action failed: ${record.errorMessage}`,
     undone: "This action was undone by a person.",
     executing: "Running.",
@@ -409,6 +452,8 @@ export function toAgentResponse(record: ActionRecordDoc, currency = DEFAULT_CURR
     decision: record.decision,
     message: messages[record.status] || record.status,
     reasons: record.decisionReasons,
+    // Only while a person still has to decide: when to give up waiting.
+    ...(record.status === "pending_approval" && record.expiresAt ? { expiresAt: record.expiresAt } : {}),
     result: record.status === "done" ? withMoneyFields(record.result, moneyFields.result, currency) : null,
     facts: withMoneyFields(record.facts, moneyFields.facts, currency),
     currency,

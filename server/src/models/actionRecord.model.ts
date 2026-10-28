@@ -1,6 +1,20 @@
 import { Schema, model, InferSchemaType, Types } from "mongoose";
 import { ACTION_STATUSES, DECISIONS } from "../constants";
 
+// Daily-limit room held for one action (see usageCounter.model). It is given back when the action
+// is denied, rejected, fails, expires or is undone. `agentId` is null for company-wide limits.
+const limitReservationSchema = new Schema(
+  {
+    ruleId: { type: Schema.Types.ObjectId, required: true },
+    action: { type: String, required: true }, // the rule's action, e.g. "booking.cancel"
+    agentId: { type: Schema.Types.ObjectId, default: null },
+    field: { type: String, required: true }, // the rule's sumField, e.g. "facts.amount"
+    day: { type: String, required: true }, // UTC day, e.g. "2026-10-28"
+    amount: { type: Number, required: true },
+  },
+  { _id: false }
+);
+
 // One document per action an agent asked for. It holds everything needed to
 // explain the decision later and to undo the change.
 const actionRecordSchema = new Schema(
@@ -26,6 +40,9 @@ const actionRecordSchema = new Schema(
     rejectedBy: { type: String, default: "" },
     undoneBy: { type: String, default: "" },
     decidedAt: { type: Date },
+    // A request nobody decides by this time becomes "expired". Only set while it waits for approval.
+    expiresAt: { type: Date },
+    limitReservations: { type: [limitReservationSchema], default: [] },
     executedAt: { type: Date },
     undoneAt: { type: Date },
     // Where the Slack approval message lives, so it can be updated once someone decides.
@@ -40,6 +57,9 @@ const actionRecordSchema = new Schema(
 actionRecordSchema.index({ workspaceId: 1, agentId: 1, idempotencyKey: 1 }, { unique: true });
 actionRecordSchema.index({ workspaceId: 1, status: 1, createdAt: -1 });
 actionRecordSchema.index({ workspaceId: 1, action: 1, createdAt: -1 });
+// The background jobs look for waiting requests that are overdue and for actions stuck mid-run.
+actionRecordSchema.index({ status: 1, expiresAt: 1 });
+actionRecordSchema.index({ status: 1, updatedAt: 1 });
 
 export type ActionRecordDoc = InferSchemaType<typeof actionRecordSchema> & {
   _id: Types.ObjectId;
