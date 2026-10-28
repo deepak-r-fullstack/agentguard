@@ -7,6 +7,7 @@ import { logger, serializeError } from "../../utils/logger";
 import { Actor, recordAuditEvent, SYSTEM_ACTOR } from "../audit/audit.service";
 import { evaluatePolicies } from "../policy/policyEngine";
 import { getEnabledRules, getUsageByRuleId } from "../policy/policy.service";
+import { notifyApprovalRequested, notifyDecisionMade } from "../slack/slack.service";
 import { ActionContext, getActionDefinition } from "./actionRegistry";
 
 // ---------------------------------------------------------------------------
@@ -163,7 +164,10 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
       onBehalfOf: input.onBehalfOf,
       summary: `Waiting for approval: ${evaluation.reasons.join(" ")}`,
     });
-    return record.toObject() as ActionRecordDoc;
+    const waiting = record.toObject() as ActionRecordDoc;
+    // Fire-and-forget: the agent gets its answer without waiting for Slack, and a Slack failure never fails the request.
+    notifyApprovalRequested(waiting);
+    return waiting;
   }
 
   return executeAction(record._id, workspaceId, SYSTEM_ACTOR);
@@ -236,7 +240,9 @@ export async function approveAction(workspaceId: Types.ObjectId, actionId: strin
     onBehalfOf: record.onBehalfOf,
     summary: `Approved: ${record.summary}`,
   });
-  return executeAction(record._id, workspaceId, approver);
+  const executed = await executeAction(record._id, workspaceId, approver);
+  notifyDecisionMade(executed); // keeps the Slack message in step when the web app made the decision
+  return executed;
 }
 
 export async function rejectAction(workspaceId: Types.ObjectId, actionId: string, approver: Actor, note = "") {
@@ -258,7 +264,9 @@ export async function rejectAction(workspaceId: Types.ObjectId, actionId: string
     onBehalfOf: record.onBehalfOf,
     summary: `Rejected: ${record.summary}${note ? ` — note: ${note}` : ""}`,
   });
-  return record.toObject() as ActionRecordDoc;
+  const rejected = record.toObject() as ActionRecordDoc;
+  notifyDecisionMade(rejected);
+  return rejected;
 }
 
 export async function undoAction(workspaceId: Types.ObjectId, actionId: string, user: Actor) {

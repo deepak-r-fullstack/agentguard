@@ -28,6 +28,9 @@ const actionRecordSchema = new Schema(
     decidedAt: { type: Date },
     executedAt: { type: Date },
     undoneAt: { type: Date },
+    // Where the Slack approval message lives, so it can be updated once someone decides.
+    slackChannelId: { type: String, default: "" },
+    slackMessageTs: { type: String, default: "" },
     // Same key twice = same action. Unique per workspace + agent.
     idempotencyKey: { type: String, required: true },
   },

@@ -24,6 +24,9 @@ const envSchema = z.object({
   LLM_MODEL: z.string().optional().default(""),
   LLM_API_KEY: z.string().optional().default(""),
   LLM_BASE_URL: z.string().optional().default(""),
+  // Slack approvals are optional: with either value missing, the feature stays off.
+  SLACK_BOT_TOKEN: z.string().optional().default(""),
+  SLACK_SIGNING_SECRET: z.string().optional().default(""),
   // Demo mode turns on the "reset demo data" button and the agent playground.
   DEMO_MODE: z
     .enum(["true", "false"])
