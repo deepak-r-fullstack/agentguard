@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-paper font-sans text-base text-ink;
+    font-feature-settings: "tnum" 1; /* numbers line up in tables and amounts */
+  }
+  /* One clear keyboard focus style everywhere. */
+  :focus-visible {
+    outline: 2px solid #0f4c5c;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+@layer components {
+  .field-input {
+    @apply w-full rounded-md border border-line bg-sheet px-3 py-2 text-base text-ink placeholder:text-ink-faint;
+    @apply focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20;
+  }
+  .field-label {
+    @apply mb-1 block text-sm font-medium text-ink-soft;
+  }
+}
+
+/* The drawer slides in because the person asked for it; respect reduced motion. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.drawer-enter {
+  animation: drawer-in 180ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer-enter {
+    animation: none;
+  }
+}

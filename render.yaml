@@ -1,0 +1,31 @@
+# One-click deploy on Render (render.com -> New -> Blueprint -> pick this repo).
+# Website and API run as ONE free web service; the database is a free MongoDB Atlas cluster.
+services:
+  - type: web
+    name: agentguard
+    runtime: node
+    plan: free
+    # Dev dependencies (TypeScript, Vite) are needed to build, so include them.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start -w server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false # paste your Atlas connection string in the Render dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_ORIGIN
+        value: https://agentguard.onrender.com
+      - key: DEMO_MODE
+        value: "true"
+      - key: SEED_ON_START
+        value: "true"
+      - key: LLM_PROVIDER
+        value: none
+      # The test-only in-memory MongoDB is not needed on the server; skip its download.
+      - key: MONGOMS_DISABLE_POSTINSTALL
+        value: "1"

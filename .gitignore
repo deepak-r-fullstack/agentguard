@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+
+# Real env files hold secrets (API keys, JWT secret). Only the examples are committed.
+server/env/*.env
+!server/env/*.env.example
+client/.env.local
+*.tsbuildinfo
