@@ -9,7 +9,7 @@ AgentGuard sits between AI agents and a company's systems. Every action an agent
 3. It is **recorded**: which agent, working for whom, which rule decided, who approved it.
 4. If it was a mistake, a manager can **undo** it with one click.
 
-> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 50 automated tests, including concurrency and security cases.
+> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 99 automated tests, including concurrency and security cases.
 
 **Live demo:** [agentguard.sritaraksolutions.in](https://agentguard.sritaraksolutions.in) (free hosting: the first visit can take about a minute to wake up). Click any demo account to sign in.
 
@@ -155,11 +155,14 @@ npm test
 
 The first run downloads a MongoDB binary (about 100 MB) for the in-memory database. To use an existing MongoDB instead: `TEST_MONGO_URI=mongodb://127.0.0.1:27017 npm test`.
 
-What is covered (50 tests):
+What is covered (99 tests):
 
 - **Policy engine (pure):** every operator, the strictest rule wins, the safe default, daily limits, failing closed when an amount cannot be measured, irreversible actions, wildcard and disabled rules.
 - **Rule validation:** unknown actions, invented fields, wrong value types.
 - **End to end over HTTP:** auto-run, approval, the split attack, pending requests counting towards limits, cross-company isolation, unregistered actions, an agent sending its own "amount", role checks, separation of duties, idempotent retries, **20 simultaneous Undo clicks undo once**, refusing a stale undo, permanent actions, audit order, CSV formula-injection protection, AI drafting being optional.
+
+- **MCP (20 tests):** initialize, tools/list (names, hints, input shape), an allowed call, one that needs approval and then completes, a denied one, idempotent retries (also across MCP and REST), `Authorization: Bearer` and `x-agent-key`, unknown fields refused, agents seeing only their own actions, unexpected errors hidden from the agent.
+- **Slack (29 tests, Slack faked by mocking `fetch`):** signature accepted or rejected (wrong secret, changed body, stale timestamp), the approval message and its buttons, Slack down never failing the agent, the Slack user mapped by email, roles, same company and channel, separation of duties, two clicks at once, web decisions updating the message, the Connections settings, and channel changes in the audit log.
 
 ## Connect your own agent
 
@@ -180,12 +183,44 @@ curl -X POST http://localhost:5050/api/agent/actions \
 
 Responses: `200` with `status: "done"` or `"denied"` (and the reasons), or `202` with `status: "pending_approval"`. Check later with `GET /api/agent/actions/:id`. `GET /api/agent/catalog` lists the allowed actions.
 
+## Connect any AI agent with MCP
+
+[MCP](https://modelcontextprotocol.io) (Model Context Protocol) is the standard way AI tools such as Claude, Cursor or your own agents discover and call tools. AgentGuard speaks it, so an MCP-capable agent can use your guarded actions with no custom code.
+
+- **Address:** `POST /api/mcp` (stateless Streamable HTTP; replies are plain JSON). `GET` and `DELETE` return `405`.
+- **Key:** the same agent keys as the REST API, sent as `Authorization: Bearer agk_...` (the `x-agent-key` header still works everywhere).
+- **Tools:** one per action in the registry, named after the action with the dots turned into `_` (`booking.cancel` becomes `booking_cancel`), plus a read-only `get_action_status`. A new action in `actionRegistry.ts` shows up as a new tool automatically.
+- **Every call goes through the guard.** A tool call is turned into `requestAction()`, so rules, approvals, the audit trail and Undo apply exactly as for the REST API. The reply is the same short JSON (`done`, `pending_approval`, `denied`...). If an action is waiting, the agent checks it later with `get_action_status` (an agent can only read its own actions).
+- **Tool inputs:** the action's own fields, plus `onBehalfOf`, `idempotencyKey` (8-100 characters) and an optional `reason`. Tools carry hints: `destructiveHint` for actions that cannot be undone, `idempotentHint` always.
+- Inputs are strict, like the REST API: a field an action does not define is refused.
+- Only AgentGuard's own plain-language messages are returned to the agent. Anything unexpected becomes a generic message (the details go to the server log).
+
+Add it to Claude Code (admins can copy this from the **Connections** page):
+
+```bash
+claude mcp add --transport http agentguard https://YOUR-APP/api/mcp \
+  --header "Authorization: Bearer agk_..."
+```
+
+Try it on the live demo: sign in as `admin@acme.test`, open **Agent keys**, create a key for Support Copilot, add the server as above, then ask the agent to "cancel booking BK-1001". It will say the request is waiting; approve it on the **Approvals** page.
+
+## Slack approvals
+
+Optional. When an agent's action needs a person's OK, AgentGuard posts it to a Slack channel with **Approve** and **Reject** buttons. Managers and admins can decide right in Slack; the message is then updated to show who decided and what happened (the same happens when the decision is made in the web app).
+
+- **Off by default.** It only works when `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` are set; without them nothing changes.
+- **Per company.** An admin saves the channel ID on the **Connections** page and can send a test message there.
+- **Never in the agent's way.** The message is sent after the agent has its answer. If Slack is slow or down, the agent is not delayed and the approval still works in the web app. Only ids are logged.
+- **Safe clicks.** Every click is checked: Slack's signature (v0 HMAC-SHA256, constant-time compare, requests older than 5 minutes are refused), then the Slack person is matched to an AgentGuard user by email (`users.info`), who must be an admin or manager of the **same** company, clicking in that company's own channel. The decision then goes through the same `approveAction` / `rejectAction` as the web app, so nobody approves work requested on their own behalf and a request can only be decided once.
+
+Setup (about 10 minutes, with a ready-made app manifest): [docs/slack-setup.md](docs/slack-setup.md).
+
 ## Security notes
 
 - Agent keys are random, shown once, and stored only as SHA-256 hashes.
 - Passwords use bcrypt; the login error never reveals whether an email exists.
 - Every query is scoped to the caller's workspace (company).
-- Helmet headers, CORS allow-list, JSON body limit, rate limits on login and the agent API.
+- Helmet headers, CORS allow-list, JSON body limit, rate limits on login, the agent API (including MCP) and Slack.
 - Logs contain ids and structure only, never names, emails, params or request bodies.
 - AI output is validated by the same schema as hand-built rules, and user text is passed to the model as data.
 
@@ -193,6 +228,7 @@ Responses: `200` with `status: "done"` or `"denied"` (and the reasons), or `202`
 
 - **Daily limits can race.** Two requests at the same instant can both pass the check. Next step: a per-workspace counter updated atomically with `$inc`, or a short lock.
 - **A crash mid-action** can leave a record in "executing". Next step: a recovery job that checks the system of record and marks it done or failed.
+- **Slack messages are not retried.** If Slack was down at the moment a request was made, no message is posted later. The request is still in the web app.
 - **Approvals do not expire.** Next step: an expiry time per rule and a reminder.
 - **The demo company system lives in the same database.** In real use the registry's `run` and `undo` would call the customer's own APIs.
 - **Reset demo data** clears that company's audit log too. It only exists in demo mode (`DEMO_MODE=false` turns it off).

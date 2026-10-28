@@ -7,6 +7,7 @@ import {
   Catalog,
   ChatOutcome,
   CompanyData,
+  Connections,
   Policy,
   PolicyInput,
   RuleDraft,
@@ -56,6 +57,12 @@ export const auditService = {
 export const agentService = {
   list: () => unwrap<AgentSummary[]>(apiClient.get("/agents")),
   rotateKey: (id: string) => unwrap<{ id: string; name: string; apiKey: string }>(apiClient.post(`/agents/${id}/rotate-key`)),
+};
+
+export const integrationService = {
+  get: () => unwrap<Connections>(apiClient.get("/integrations")),
+  saveSlackChannel: (slackChannelId: string) => unwrap<Connections>(apiClient.put("/integrations/slack", { slackChannelId })),
+  sendSlackTest: () => unwrap<{ sent: boolean }>(apiClient.post("/integrations/slack/test")),
 };
 
 export const demoService = {

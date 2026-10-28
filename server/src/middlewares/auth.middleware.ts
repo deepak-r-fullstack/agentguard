@@ -59,10 +59,19 @@ export function authorizeRoles(...roles: UserRole[]) {
   };
 }
 
+// Agents send their key in x-agent-key. MCP clients can only send "Authorization: Bearer <key>",
+// so that form is accepted too. x-agent-key wins when both are present.
+function readAgentKey(req: Request): string {
+  const headerKey = String(req.headers["x-agent-key"] || "");
+  if (headerKey) return headerKey;
+  const [scheme, token] = (req.headers.authorization || "").split(" ");
+  return scheme?.toLowerCase() === "bearer" && token ? token : "";
+}
+
 export async function authenticateAgent(req: Request, res: Response, next: NextFunction) {
   try {
-    const apiKey = String(req.headers["x-agent-key"] || "");
-    if (!apiKey) throw new UnauthorizedError("Send your agent key in the x-agent-key header.");
+    const apiKey = readAgentKey(req);
+    if (!apiKey) throw new UnauthorizedError("Send your agent key in the x-agent-key header (or as Authorization: Bearer agk_...).");
     const agent = await findAgentByApiKey(apiKey);
     if (!agent) throw new UnauthorizedError("This agent key is not valid or the agent is turned off.");
     res.locals.agent = agent;

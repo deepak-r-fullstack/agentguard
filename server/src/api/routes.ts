@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { env, isTest } from "../config/env";
 import { asyncHandler } from "../helpers/asyncHandler";
@@ -13,6 +13,9 @@ import * as policiesController from "../controllers/policies.controller";
 import * as auditController from "../controllers/audit.controller";
 import * as agentsController from "../controllers/agents.controller";
 import * as demoController from "../controllers/demo.controller";
+import * as mcpController from "../controllers/mcp.controller";
+import * as integrationsController from "../controllers/integrations.controller";
+import * as slackController from "../controllers/slack.controller";
 import { NotFoundError } from "../helpers/errors";
 
 const router = Router();
@@ -20,6 +23,9 @@ const router = Router();
 // Rate limits: slow down password guessing and runaway agent loops.
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: isTest ? 1000 : 20, standardHeaders: true, legacyHeaders: false });
 const agentLimiter = rateLimit({ windowMs: 60 * 1000, limit: isTest ? 10000 : 120, standardHeaders: true, legacyHeaders: false });
+
+// Slack's button clicks: one call per click, so a generous limit only stops floods.
+const slackLimiter = rateLimit({ windowMs: 60 * 1000, limit: isTest ? 10000 : 300, standardHeaders: true, legacyHeaders: false });
 
 const demoOnly = (_req: unknown, _res: unknown, next: (err?: unknown) => void) =>
   env.DEMO_MODE ? next() : next(new NotFoundError("Demo features are turned off."));
@@ -42,6 +48,11 @@ router.post(
   asyncHandler(agentApiController.submitAgentAction)
 );
 router.get("/agent/actions/:id", agentLimiter, authenticateAgent, asyncHandler(agentApiController.getAgentActionStatus));
+
+// ---------- agents: MCP (Model Context Protocol), same guard behind it ----------
+router.post("/mcp", agentLimiter, authenticateAgent, asyncHandler(mcpController.handleMcpRequest));
+router.get("/mcp", agentLimiter, mcpController.rejectMcpMethod);
+router.delete("/mcp", agentLimiter, mcpController.rejectMcpMethod);
 
 // ---------- people: actions, approvals, undo ----------
 router.get(
@@ -106,6 +117,24 @@ router.get(
 // ---------- people: agent keys ----------
 router.get("/agents", authenticateUser, authorizeRoles("admin"), asyncHandler(agentsController.getAgents));
 router.post("/agents/:id/rotate-key", authenticateUser, authorizeRoles("admin"), asyncHandler(agentsController.rotateKey));
+
+// ---------- people: connections (MCP address, Slack) ----------
+router.get("/integrations", authenticateUser, authorizeRoles("admin"), asyncHandler(integrationsController.getIntegrations));
+router.put(
+  "/integrations/slack",
+  authenticateUser,
+  authorizeRoles("admin"),
+  validateRequest(integrationsController.slackChannelSchema),
+  asyncHandler(integrationsController.saveSlackChannel)
+);
+router.post("/integrations/slack/test", authenticateUser, authorizeRoles("admin"), asyncHandler(integrationsController.sendSlackTest));
+// Called by Slack, not by a signed-in person. Slack sends a form; we need its exact bytes to check the signature.
+router.post(
+  "/integrations/slack/interactions",
+  slackLimiter,
+  express.raw({ type: "application/x-www-form-urlencoded", limit: "100kb" }),
+  asyncHandler(slackController.receiveSlackInteraction)
+);
 
 // ---------- demo ----------
 router.get("/demo/company", authenticateUser, asyncHandler(demoController.getCompanyData));

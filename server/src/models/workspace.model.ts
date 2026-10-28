@@ -7,6 +7,8 @@ const workspaceSchema = new Schema(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
     currency: { type: String, default: "INR" },
+    // Slack channel (e.g. "C0123456789") that gets approval requests. Empty = Slack is not used.
+    slackChannelId: { type: String, default: "", trim: true },
   },
   { timestamps: true }
 );

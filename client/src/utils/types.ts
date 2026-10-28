@@ -153,6 +153,10 @@ export interface AgentSummary {
   active: boolean;
 }
 
+export interface Connections {
+  slack: { configured: boolean; channelId: string };
+}
+
 export interface ChatOutcome {
   planned: { action: string; params: Record<string, unknown>; reason: string };
   outcome: AgentAction | null;

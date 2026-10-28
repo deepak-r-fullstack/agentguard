@@ -4,6 +4,7 @@ import {
   agentService,
   auditService,
   demoService,
+  integrationService,
   policyService,
 } from "utils/services/api_services/agentguard_service";
 import { getErrorMessage } from "utils/services/api_services/apiClient";
@@ -22,6 +23,7 @@ export const queryKeys = {
   audit: (filters: object) => ["audit", filters] as const,
   company: ["company"] as const,
   agents: ["agents"] as const,
+  connections: ["connections"] as const,
 };
 
 // Approvals arrive from agents at any time, so these lists refresh themselves.
@@ -80,6 +82,10 @@ export function useCompanyData() {
 
 export function useAgents() {
   return useQuery({ queryKey: queryKeys.agents, queryFn: () => agentService.list().then((response) => response.data) });
+}
+
+export function useConnections() {
+  return useQuery({ queryKey: queryKeys.connections, queryFn: () => integrationService.get().then((response) => response.data) });
 }
 
 // ---------- mutations ----------
@@ -181,6 +187,26 @@ export function useRotateAgentKey() {
   return useMutation({
     mutationFn: (id: string) => agentService.rotateKey(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+    onError: (error) => showToast(getErrorMessage(error), "error"),
+  });
+}
+
+export function useSaveSlackChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (slackChannelId: string) => integrationService.saveSlackChannel(slackChannelId),
+    onSuccess: (response) => {
+      showToast(response.message);
+      queryClient.invalidateQueries({ queryKey: queryKeys.connections });
+    },
+    onError: (error) => showToast(getErrorMessage(error), "error"),
+  });
+}
+
+export function useSendSlackTest() {
+  return useMutation({
+    mutationFn: integrationService.sendSlackTest,
+    onSuccess: (response) => showToast(response.message),
     onError: (error) => showToast(getErrorMessage(error), "error"),
   });
 }
