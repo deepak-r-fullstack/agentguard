@@ -5,6 +5,8 @@ services:
     name: agentguard
     runtime: node
     plan: free
+    # Close to the Atlas cluster in Mumbai, so each database call is quick.
+    region: singapore
     # Dev dependencies (TypeScript, Vite) are needed to build, so include them.
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start -w server
