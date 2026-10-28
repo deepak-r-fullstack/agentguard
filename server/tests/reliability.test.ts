@@ -276,7 +276,8 @@ describe("approvals that expire", () => {
     expect(saved.status).toBe(200);
     expect(saved.body.data.approvalExpiryHours).toBe(48);
 
-    const record = await ActionRecord.findById((await cancel("BK-1005")).body.data.actionId).lean();
+    await Booking.updateOne({ workspaceId: acmeWorkspaceId, code: "BK-1008" }, { $set: { amount: 6000 } }); // waits for a person, and fits under the daily cap with BK-1001
+    const record = await ActionRecord.findById((await cancel("BK-1008")).body.data.actionId).lean();
     expect(Math.abs(record!.expiresAt!.getTime() - (Date.now() + 48 * HOUR_MS))).toBeLessThan(60 * 1000);
     const earlier = await ActionRecord.findById(waiting.body.data.actionId).lean();
     expect(Math.abs(earlier!.expiresAt!.getTime() - (Date.now() + 24 * HOUR_MS))).toBeLessThan(60 * 1000);
