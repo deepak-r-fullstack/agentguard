@@ -9,7 +9,7 @@ AgentGuard sits between AI agents and a company's systems. Every action an agent
 3. It is **recorded**: which agent, working for whom, which rule decided, who approved it.
 4. If it was a mistake, a manager can **undo** it with one click.
 
-> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 99 automated tests, including concurrency and security cases.
+> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 191 automated tests, including concurrency and security cases.
 
 **Live demo:** [agentguard.sritaraksolutions.in](https://agentguard.sritaraksolutions.in) (free hosting: the first visit can take about a minute to wake up). Click any demo account to sign in.
 
@@ -159,7 +159,7 @@ npm test
 
 The first run downloads a MongoDB binary (about 100 MB) for the in-memory database. To use an existing MongoDB instead: `TEST_MONGO_URI=mongodb://127.0.0.1:27017 npm test`.
 
-What is covered (99 tests):
+What is covered (191 tests):
 
 - **Policy engine (pure):** every operator, the strictest rule wins, the safe default, daily limits, failing closed when an amount cannot be measured, irreversible actions, wildcard and disabled rules.
 - **Rule validation:** unknown actions, invented fields, wrong value types.
