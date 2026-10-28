@@ -125,13 +125,14 @@ export function buildApprovalMessage(record: MessageRecord) {
 export function buildDecisionMessage(record: MessageRecord & Pick<ActionRecordDoc, "status" | "approvedBy" | "rejectedBy" | "errorMessage">) {
   let line: string;
   if (record.status === "rejected") line = `❌ *Rejected by ${escapeSlackText(record.rejectedBy)}*`;
+  else if (record.status === "expired") line = "⌛ *Expired*: nobody decided in time, so nothing was done.";
   else if (record.status === "failed") {
     line = `⚠️ *Approved by ${escapeSlackText(record.approvedBy)}*, but the action failed: ${escapeSlackText(record.errorMessage)}`;
   } else line = `✅ *Approved by ${escapeSlackText(record.approvedBy)}* and done`;
 
   return {
-    text: `${record.status === "rejected" ? "Rejected" : "Approved"}: ${escapeSlackText(record.summary)}`,
-    blocks: [...summaryBlocks(record, "Decision made"), { type: "section", text: { type: "mrkdwn", text: line } }],
+    text: `${record.status === "rejected" ? "Rejected" : record.status === "expired" ? "Expired" : "Approved"}: ${escapeSlackText(record.summary)}`,
+    blocks: [...summaryBlocks(record, record.status === "expired" ? "Request expired" : "Decision made"), { type: "section", text: { type: "mrkdwn", text: line } }],
   };
 }
 

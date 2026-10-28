@@ -4,7 +4,9 @@ import {
   AgentAction,
   AgentSummary,
   ApiEnvelope,
+  ApprovalSettings,
   AuditEvent,
+  AuditVerification,
   Catalog,
   ChatOutcome,
   CompanyData,
@@ -51,10 +53,16 @@ export const policyService = {
 export const auditService = {
   list: (filters: { type?: string; actorType?: string } = {}) =>
     unwrap<AuditEvent[]>(apiClient.get("/audit", { params: filters })),
+  verify: () => unwrap<AuditVerification>(apiClient.get("/audit/verify")),
   exportCsv: async (filters: { type?: string; actorType?: string } = {}) => {
     const response = await apiClient.get("/audit/export", { params: filters, responseType: "blob" });
     return response.data as Blob;
   },
+};
+
+export const settingsService = {
+  getApprovals: () => unwrap<ApprovalSettings>(apiClient.get("/settings/approvals")),
+  saveApprovals: (approvalExpiryHours: number) => unwrap<ApprovalSettings>(apiClient.put("/settings/approvals", { approvalExpiryHours })),
 };
 
 export const agentService = {

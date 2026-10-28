@@ -12,6 +12,7 @@ import { getErrorMessage } from "utils/services/api_services/apiClient";
 import { describeCondition, describeDailyLimit, EFFECT_LABEL } from "utils/helper_functions/format";
 import { useAuthStore } from "utils/store/authStore";
 import { CatalogAction, Decision, Policy, PolicyInput } from "utils/types";
+import { ApprovalExpiryCard } from "./ApprovalExpiryCard";
 import { RuleEditor } from "./RuleEditor";
 
 const EFFECT_STYLE: Record<Decision, string> = {
@@ -143,6 +144,8 @@ export const RulesScreen = () => {
           )
         }
       />
+
+      <ApprovalExpiryCard isAdmin={isAdmin} />
 
       {isAdmin && editor.mode === "closed" && (
         <form onSubmit={requestDraft} className="mb-8 rounded-lg border border-line bg-sheet p-5">

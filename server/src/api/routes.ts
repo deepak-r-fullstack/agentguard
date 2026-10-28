@@ -17,6 +17,7 @@ import * as mcpController from "../controllers/mcp.controller";
 import * as integrationsController from "../controllers/integrations.controller";
 import * as slackController from "../controllers/slack.controller";
 import * as teamController from "../controllers/team.controller";
+import * as settingsController from "../controllers/settings.controller";
 import { NotFoundError } from "../helpers/errors";
 
 const router = Router();
@@ -107,12 +108,23 @@ router.get(
   validateRequest(auditController.auditQuerySchema, "query"),
   asyncHandler(auditController.getAuditEvents)
 );
+router.get("/audit/verify", authenticateUser, asyncHandler(auditController.verifyAudit));
 router.get(
   "/audit/export",
   authenticateUser,
   authorizeRoles("admin", "auditor"),
   validateRequest(auditController.auditQuerySchema, "query"),
   asyncHandler(auditController.exportAuditCsv)
+);
+
+// ---------- people: settings (how long approvals wait) ----------
+router.get("/settings/approvals", authenticateUser, asyncHandler(settingsController.getApprovalSettings));
+router.put(
+  "/settings/approvals",
+  authenticateUser,
+  authorizeRoles("admin"),
+  validateRequest(settingsController.approvalSettingsSchema),
+  asyncHandler(settingsController.saveApprovalSettings)
 );
 
 // ---------- people: agent keys ----------

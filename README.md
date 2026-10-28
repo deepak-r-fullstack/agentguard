@@ -75,7 +75,11 @@ agentguard/
         policy/policyEngine.ts      pure decision logic (unit tested, no database)
         policy/policySchemas.ts     one validation path for hand-built and AI-drafted rules
         llm/                        provider-agnostic AI (OpenAI, Claude, Ollama) for drafting only
-        audit/                      append-only audit trail + CSV export
+        policy/dailyLimit.service.ts atomic daily-limit counters (reserve / give back)
+        approvals/                  approvals that expire (sweep + the admin setting)
+        actions/recovery.service.ts settles actions a crash left half-done
+        audit/                      append-only, hash-chained audit trail + verify + CSV export
+      loaders/maintenance.ts   background jobs (recovery + expiry), safe on several servers
       models/                  Mongoose schemas
     tests/                     Jest + Supertest + in-memory MongoDB
   client/                      React 18 + Vite + Tailwind + React Query + Zustand
@@ -91,7 +95,7 @@ agentguard/
 | Whose numbers count | Facts the registry looks up from the system of record | An agent that claims "this refund is ₹1" is ignored; the params schema rejects unknown fields. |
 | How undo works | Each action saves a before-snapshot and has a compensating `undo` | Same idea as the Saga pattern used in payments. Undo refuses if the record changed since, so it never overwrites newer work. |
 | Irreversible actions | Marked `irreversible`, always need approval, no Undo button | Honest design: what cannot be reversed must be stopped before it happens. |
-| Splitting a big action into small ones | Daily limits per agent or per company; pending requests count too | Queuing ten small requests does not get around the limit. |
+| Splitting a big action into small ones | Daily limits per agent or per company; pending requests count too; room is reserved atomically | Queuing ten small requests, or sending them all at the same instant, does not get around the limit. |
 | Double clicks and retries | Idempotency keys (unique index) and atomic state changes (`findOneAndUpdate` with a status filter) | Twenty Undo clicks at once undo exactly once. A retried request never acts twice. |
 | Identity | Every action stores the agent **and** the person it worked for | Fixes the "the AI did it" audit problem. A manager cannot approve work requested for themselves. |
 | No rule matches | A person must approve | Safe by default. |
@@ -161,6 +165,7 @@ What is covered (99 tests):
 - **Rule validation:** unknown actions, invented fields, wrong value types.
 - **End to end over HTTP:** auto-run, approval, the split attack, pending requests counting towards limits, cross-company isolation, unregistered actions, an agent sending its own "amount", role checks, separation of duties, idempotent retries, **20 simultaneous Undo clicks undo once**, refusing a stale undo, permanent actions, audit order, CSV formula-injection protection, AI drafting being optional.
 
+- **Reliability (new):** ten simultaneous requests never pass the limit; room given back on reject, undo, failure and expiry (and only once); a counter created mid-day still counts earlier actions; interrupted actions settled once even with six servers running the job; a late finish not overwriting recovery; expiry by sweep and at approval time; `expired` seen by agents over REST and MCP and in Slack; the admin setting; the audit chain (OK, edited, removed, cut off, relinked, per company, 40 simultaneous writes, entries from before the chain, demo reset).
 - **MCP (20 tests):** initialize, tools/list (names, hints, input shape), an allowed call, one that needs approval and then completes, a denied one, idempotent retries (also across MCP and REST), `Authorization: Bearer` and `x-agent-key`, unknown fields refused, agents seeing only their own actions, unexpected errors hidden from the agent.
 - **Slack (29 tests, Slack faked by mocking `fetch`):** signature accepted or rejected (wrong secret, changed body, stale timestamp), the approval message and its buttons, Slack down never failing the agent, the Slack user mapped by email, roles, same company and channel, separation of duties, two clicks at once, web decisions updating the message, the Connections settings, and channel changes in the audit log.
 
@@ -234,6 +239,18 @@ Optional. When an agent's action needs a person's OK, AgentGuard posts it to a S
 
 Setup (about 10 minutes, with a ready-made app manifest): [docs/slack-setup.md](docs/slack-setup.md).
 
+## Reliability: four guarantees
+
+These close the "known limits" the first version listed. Every state change is still one atomic, workspace-scoped update, and the rules are still plain code: no AI is involved in any of this.
+
+**Daily limits cannot be raced.** A daily limit used to be "add up today's actions, then decide", so two requests arriving at the same instant both saw room and both went through. Now each limit has a counter (per company, rule, agent and day), and a request takes its share with one conditional update: "add my amount, but only if it still fits". The database applies those one at a time, so the total can never go over, even with ten requests at once (there is a test that fires ten with `Promise.all`). The room is given back when the action is denied, rejected, fails, expires or is undone, and waiting requests keep their room, as before. A "day" is the UTC calendar day.
+
+**Interrupted actions are settled.** If the server stops while an action is running, its record used to stay "executing" forever. At startup and every 5 minutes a job looks for actions stuck in "executing" or "undoing" for more than 10 minutes. An "executing" one becomes **failed** with the message "This action was interrupted; please check the booking.", and an "undoing" one goes back to **done** so Undo can be tried again. Each gets an audit event. The job changes a record with one conditional update, so when several servers run it together, exactly one of them settles each record; and a slow action that finishes after the job gave up on it cannot overwrite the job's decision.
+
+**Approvals expire.** A request that needs a person gets an `expiresAt` (24 hours by default). Admins change the number on the **Rules** screen, for new requests. When the time passes (checked every minute, and at the moment someone tries to approve), the request becomes **expired**: nothing is done, its daily-limit room is freed, the audit log gets an entry, the Slack message turns into "Expired", and it can no longer be approved or rejected. Agents see `status: "expired"` over REST and MCP and can simply ask again.
+
+**The audit log shows if it was changed.** Each company's audit entries are numbered 1, 2, 3... and each stores the hash of the one before it plus its own hash (SHA-256 of the previous hash and the entry's canonical JSON). Edit or delete an old entry and every hash after it stops matching. `GET /api/audit/verify` walks the chain and answers either OK or the first broken entry, and the **Audit log** screen shows a "History verified" badge. Two entries written at the same instant cannot take the same number (a unique index; the loser reads again and retries). **Reset demo data** starts a new chain with a `chain_started` entry; the record of who was added to the team is carried over into it. Entries written before this existed sit outside the chain, and the check says how many.
+
 ## Security notes
 
 - Agent keys are random, shown once, and stored only as SHA-256 hashes.
@@ -245,12 +262,13 @@ Setup (about 10 minutes, with a ready-made app manifest): [docs/slack-setup.md](
 
 ## Known limitations (and what I would do next)
 
-- **Daily limits can race.** Two requests at the same instant can both pass the check. Next step: a per-workspace counter updated atomically with `$inc`, or a short lock.
-- **A crash mid-action** can leave a record in "executing". Next step: a recovery job that checks the system of record and marks it done or failed.
+- **A daily limit is a UTC calendar day,** not a rolling 24 hours: the count starts again at midnight UTC.
+- **Recovery does not look at the company system.** An interrupted action is marked failed (or done again, for an undo) and a person checks the booking; the job does not try to find out what really happened. Next step: ask the system of record.
+- **The audit chain proves changes, not the loss of the newest entries.** Deleting the last few entries leaves a valid shorter chain. The verify result includes the latest hash (`headHash`); write it down somewhere else (or have a scheduled job do it) to catch that. Writes also take turns per company, which is fine at this scale but would need a different design for very high volume.
+- **Approval reminders** (a nudge before a request expires) are not built; requests simply expire.
 - **Slack messages are not retried.** If Slack was down at the moment a request was made, no message is posted later. The request is still in the web app.
-- **Approvals do not expire.** Next step: an expiry time per rule and a reminder.
 - **The demo company system lives in the same database.** In real use the registry's `run` and `undo` would call the customer's own APIs.
-- **Reset demo data** clears that company's audit log too. It only exists in demo mode (`DEMO_MODE=false` turns it off).
+- **Reset demo data** clears that company's audit log and starts a new chain (keeping the record of team changes). It only exists in demo mode (`DEMO_MODE=false` turns it off).
 
 ## Built with AI, verified by me
 

@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { Types } from "mongoose";
 import request from "supertest";
 import { createApp } from "../src/app";
 import { env } from "../src/config/env";
@@ -7,6 +8,7 @@ import { AuditEvent } from "../src/models/auditEvent.model";
 import { User } from "../src/models/user.model";
 import { Workspace } from "../src/models/workspace.model";
 import { DEMO_PASSWORD, seedDemoData, SeedResult } from "../src/services/demo/demo.service";
+import { expireOverdueApprovals } from "../src/services/approvals/approvalExpiry.service";
 import { isValidSlackSignature } from "../src/services/slack/slack.service";
 import { startTestDb, stopTestDb } from "./helpers/testDb";
 
@@ -491,5 +493,25 @@ describe("Connections settings", () => {
     const notIn = await request(app).post("/api/integrations/slack/test").set("authorization", `Bearer ${admin}`);
     expect(notIn.status).toBe(400);
     expect(notIn.body.message).toContain("Add the AgentGuard app");
+  });
+});
+
+describe("expired requests in Slack", () => {
+  it("turns the message into 'Expired', and a late click is refused", async () => {
+    const actionId = await requestApprovalPostedToSlack();
+    await ActionRecord.collection.updateOne({ _id: new Types.ObjectId(actionId) }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+    expect(await expireOverdueApprovals()).toBe(1);
+
+    await waitFor(() => callsTo("chat.update").length === 1);
+    const update = callsTo("chat.update")[0];
+    expect(update.params.get("ts")).toBe("1700000000.000100");
+    expect(update.params.get("blocks")).toContain("Expired");
+    expect(update.params.get("blocks")).not.toContain("agentguard_approve"); // buttons are gone
+
+    await sendClick(clickBody("U_MANAGER", actionId));
+    await waitFor(() => ephemeralReplies.length === 1);
+    expect(ephemeralReplies[0]).toContain("expired");
+    expect((await ActionRecord.findById(actionId).lean())?.status).toBe("expired");
+    expect(callsTo("chat.update")).toHaveLength(1); // the refused click changed nothing
   });
 });

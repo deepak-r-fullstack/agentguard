@@ -1,13 +1,9 @@
-import { PipelineStage, Types } from "mongoose";
+import { Types } from "mongoose";
 import { Policy, PolicyDoc } from "../../models/policy.model";
-import { ActionRecord } from "../../models/actionRecord.model";
-import { STATUSES_COUNTING_TOWARDS_LIMITS } from "../../constants";
 import { NotFoundError } from "../../helpers/errors";
 import { Actor, recordAuditEvent } from "../audit/audit.service";
 import { PolicyRule } from "./policyEngine";
 import { PolicyInput } from "./policySchemas";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function toPolicyRule(policy: PolicyDoc): PolicyRule {
   return {
@@ -30,40 +26,6 @@ export function toPolicyRule(policy: PolicyDoc): PolicyRule {
 export async function getEnabledRules(workspaceId: Types.ObjectId): Promise<PolicyRule[]> {
   const policies = await Policy.find({ workspaceId, enabled: true }).lean<PolicyDoc[]>();
   return policies.map(toPolicyRule);
-}
-
-/**
- * For each rule with a daily limit, add up what was already used in the last
- * 24 hours (rolling window). Pending requests count too, so an agent cannot
- * queue ten small requests to get around a limit.
- */
-export async function getUsageByRuleId(
-  workspaceId: Types.ObjectId,
-  rules: PolicyRule[],
-  agentId: Types.ObjectId
-): Promise<Record<string, number>> {
-  const usage: Record<string, number> = {};
-  const since = new Date(Date.now() - DAY_MS);
-
-  for (const rule of rules) {
-    if (!rule.dailyLimit) continue;
-    // sumField is validated as "facts.<name>" (see policySchemas), so it is safe to use as a field path.
-    const pipeline: PipelineStage[] = [
-      {
-        $match: {
-          workspaceId,
-          action: rule.action,
-          status: { $in: STATUSES_COUNTING_TOWARDS_LIMITS },
-          createdAt: { $gte: since },
-          ...(rule.dailyLimit.scope === "agent" ? { agentId } : {}),
-        },
-      },
-      { $group: { _id: null, total: { $sum: `$${rule.dailyLimit.sumField}` } } },
-    ];
-    const [result] = await ActionRecord.aggregate<{ total: number }>(pipeline);
-    usage[rule.id] = result?.total || 0;
-  }
-  return usage;
 }
 
 // ---------- CRUD (every change is audited) ----------

@@ -10,7 +10,7 @@ import {
 } from "components/display_components";
 import { useActionDecision, useActions } from "utils/hooks/useAgentGuardQueries";
 import { getErrorMessage } from "utils/services/api_services/apiClient";
-import { timeAgo } from "utils/helper_functions/format";
+import { timeAgo, timeUntil } from "utils/helper_functions/format";
 import { useAuthStore } from "utils/store/authStore";
 import { AgentAction } from "utils/types";
 
@@ -50,6 +50,12 @@ const ApprovalSlip = ({ item, canDecide }: { item: AgentAction; canDecide: boole
             ))}
           </ul>
         </div>
+
+        {item.expiresAt && (
+          <p className="mt-3 text-sm text-ink-soft">
+            Expires {timeUntil(item.expiresAt)}. After that it can no longer be approved, and the agent will need to ask again.
+          </p>
+        )}
 
         {item.irreversible && (
           <p className="mt-3 flex items-center gap-2 text-sm font-medium text-refused">
