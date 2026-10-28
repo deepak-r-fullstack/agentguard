@@ -276,8 +276,10 @@ describe("approvals that expire", () => {
     expect(saved.status).toBe(200);
     expect(saved.body.data.approvalExpiryHours).toBe(48);
 
-    await Booking.updateOne({ workspaceId: acmeWorkspaceId, code: "BK-1008" }, { $set: { amount: 6000 } }); // waits for a person, and fits under the daily cap with BK-1001
-    const record = await ActionRecord.findById((await cancel("BK-1008")).body.data.actionId).lean();
+    // A 20% discount is covered by no rule, so it waits for a person, and it has no daily cap to hit.
+    const discount = await agentRequest({ action: "booking.applyDiscount", params: { bookingCode: "BK-1004", percent: 20 } });
+    expect(discount.body.data.status).toBe("pending_approval");
+    const record = await ActionRecord.findById(discount.body.data.actionId).lean();
     expect(Math.abs(record!.expiresAt!.getTime() - (Date.now() + 48 * HOUR_MS))).toBeLessThan(60 * 1000);
     const earlier = await ActionRecord.findById(waiting.body.data.actionId).lean();
     expect(Math.abs(earlier!.expiresAt!.getTime() - (Date.now() + 24 * HOUR_MS))).toBeLessThan(60 * 1000);
