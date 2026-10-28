@@ -25,7 +25,6 @@ async function getWorkspaceChannel(workspaceId: unknown): Promise<string> {
 
 function describeConnections(slackChannelId: string) {
   return {
-    mcpPath: "/api/mcp",
     slack: { configured: isSlackConfigured(), channelId: slackChannelId },
   };
 }

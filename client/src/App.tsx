@@ -11,6 +11,7 @@ import { PlaygroundScreen } from "screens/playground_screen";
 import { CompanyScreen } from "screens/company_screen";
 import { AuditScreen } from "screens/audit_screen";
 import { AgentsScreen } from "screens/agents_screen";
+import { ConnectionsScreen } from "screens/connections_screen";
 
 const RequireRole = ({ roles, children }: { roles: UserRole[]; children: JSX.Element }) => {
   const user = useAuthStore((state) => state.user);
@@ -43,6 +44,14 @@ export const App = () => {
               element={
                 <RequireRole roles={["admin"]}>
                   <AgentsScreen />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/connections"
+              element={
+                <RequireRole roles={["admin"]}>
+                  <ConnectionsScreen />
                 </RequireRole>
               }
             />

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { Bot, Building2, Inbox, KeyRound, LogOut, Menu, ScrollText, ShieldCheck, SlidersHorizontal, History, X } from "lucide-react";
+import { Bot, Building2, Inbox, KeyRound, LogOut, Plug, Menu, ScrollText, ShieldCheck, SlidersHorizontal, History, X } from "lucide-react";
 import { useAuthStore } from "utils/store/authStore";
 import { useActionStats } from "utils/hooks/useAgentGuardQueries";
 import { UserRole } from "utils/types";
@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/company", label: "Company data", icon: Building2 },
   { to: "/audit", label: "Audit log", icon: ScrollText },
   { to: "/agents", label: "Agent keys", icon: KeyRound, roles: ["admin"] },
+  { to: "/connections", label: "Connections", icon: Plug, roles: ["admin"] },
 ];
 
 const ROLE_LABEL: Record<UserRole, string> = { admin: "Admin", manager: "Manager", auditor: "Auditor" };
