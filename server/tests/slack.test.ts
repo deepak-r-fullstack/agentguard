@@ -329,6 +329,14 @@ describe("approving and rejecting in Slack", () => {
     const actionId = await requestApprovalPostedToSlack();
     await sendClick(clickBody("U_STRANGER", actionId));
     await waitFor(() => ephemeralReplies.length === 1);
+    expect(ephemeralReplies[0]).toContain("does not match a person");
+    expect((await ActionRecord.findById(actionId).lean())?.status).toBe("pending_approval");
+  });
+
+  it("explains it when Slack does not know the person at all (no email to read)", async () => {
+    const actionId = await requestApprovalPostedToSlack();
+    await sendClick(clickBody("U_UNKNOWN_TO_SLACK", actionId));
+    await waitFor(() => ephemeralReplies.length === 1);
     expect(ephemeralReplies[0]).toContain("could not read your email");
     expect((await ActionRecord.findById(actionId).lean())?.status).toBe("pending_approval");
   });

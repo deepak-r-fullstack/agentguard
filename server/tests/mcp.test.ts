@@ -28,7 +28,8 @@ function mcpRequest(method: string, params: unknown, auth: Record<string, string
 async function callTool(name: string, args: Record<string, unknown>, key = acmeAgentKey) {
   const res = await mcpRequest(
     "tools/call",
-    { name, arguments: { onBehalfOf: "Ravi (support team)", idempotencyKey: newKey(), ...args } },
+    // get_action_status is read-only and takes only an actionId (its schema is strict).
+    { name, arguments: name === "get_action_status" ? args : { onBehalfOf: "Ravi (support team)", idempotencyKey: newKey(), ...args } },
     { authorization: `Bearer ${key}` }
   );
   expect(res.status).toBe(200);
