@@ -38,7 +38,7 @@ const commonInput = {
 // is the same call, typed for exactly what we pass. The SDK still validates every input at runtime.
 type RegisterTool = (
   name: string,
-  config: { title: string; description: string; inputSchema: z.ZodRawShape; annotations: ToolAnnotations },
+  config: { title: string; description: string; inputSchema: z.ZodTypeAny; annotations: ToolAnnotations },
   handler: (args: Record<string, unknown>) => Promise<CallToolResult>
 ) => unknown;
 
@@ -87,7 +87,8 @@ function registerActionTool(server: McpServer, agent: AgentIdentity, definition:
   const toolName = toToolName(definition.key);
   // Every action's params are a plain z.object, so its shape can sit next to the common fields.
   const paramsShape: z.ZodRawShape = definition.paramsSchema instanceof z.ZodObject ? definition.paramsSchema.shape : {};
-  const inputSchema: z.ZodRawShape = { ...paramsShape, ...commonInput };
+  // Strict, like the REST API: a field the action does not define is refused, not silently dropped.
+  const inputSchema = z.object({ ...paramsShape, ...commonInput }).strict();
 
   // The SDK has already checked args against inputSchema, so the common fields are present.
   const handler = async (args: Record<string, unknown>): Promise<CallToolResult> => {
@@ -119,9 +120,9 @@ function registerActionTool(server: McpServer, agent: AgentIdentity, definition:
   );
 }
 
-const statusInput: z.ZodRawShape = {
-  actionId: z.string().trim().min(1).max(100).describe("The actionId returned when you asked for the action."),
-};
+const statusInput = z
+  .object({ actionId: z.string().trim().min(1).max(100).describe("The actionId returned when you asked for the action.") })
+  .strict();
 
 function registerStatusTool(server: McpServer, agent: AgentIdentity) {
   registerTool(

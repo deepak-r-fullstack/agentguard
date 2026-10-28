@@ -52,6 +52,7 @@ export const AUDIT_EVENT_TYPES = [
   "policy_created",
   "policy_updated",
   "policy_deleted",
+  "integration_updated",
   "demo_reset",
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];

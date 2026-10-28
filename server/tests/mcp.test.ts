@@ -220,6 +220,21 @@ describe("MCP tool calls go through the guard", () => {
     expect(outcome.text).not.toContain("internal-host");
   });
 
+  it("rejects fields the action does not define, like the REST API (the agent cannot claim its own amount)", async () => {
+    const res = await mcpRequest("tools/call", {
+      name: "booking_cancel",
+      arguments: { bookingCode: "BK-1002", amount: 1, onBehalfOf: "Ravi", idempotencyKey: newKey() },
+    });
+    const failed = res.body.error || res.body.result?.isError;
+    expect(failed).toBeTruthy();
+    expect(await ActionRecord.countDocuments({})).toBe(0);
+    expect((await Booking.findOne({ code: "BK-1002" }).lean())?.status).toBe("confirmed");
+
+    const listed = await mcpRequest("tools/list", {});
+    const cancel = listed.body.result.tools.find((tool: { name: string }) => tool.name === "booking_cancel");
+    expect(cancel.inputSchema.additionalProperties).toBe(false);
+  });
+
   it("rejects input that does not match the tool (missing idempotencyKey)", async () => {
     const res = await mcpRequest("tools/call", { name: "booking_cancel", arguments: { bookingCode: "BK-1002", onBehalfOf: "Ravi" } });
     const failed = res.body.error || res.body.result?.isError;

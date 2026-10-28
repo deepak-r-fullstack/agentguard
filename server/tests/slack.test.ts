@@ -421,6 +421,35 @@ describe("Connections settings", () => {
     expect(cleared.body.data.slack.channelId).toBe("");
   });
 
+  it("records who changed or cleared the channel in the audit log, and nothing when it did not change", async () => {
+    const admin = await loginAs("admin@acme.test");
+    const put = (slackChannelId: string) =>
+      request(app).put("/api/integrations/slack").set("authorization", `Bearer ${admin}`).send({ slackChannelId });
+    const events = () => AuditEvent.find({ type: "integration_updated" }).sort({ createdAt: 1, _id: 1 }).lean();
+
+    await put("C0NEWCHAN01");
+    await put("C0NEWCHAN01"); // same value again: no new event
+    await put("");
+    await put(""); // already off: no new event
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(2);
+    expect(recorded[0].summary).toBe(`Changed the Slack approvals channel from ${ACME_CHANNEL} to C0NEWCHAN01`);
+    expect(recorded[1].summary).toBe("Turned off Slack approvals (was channel C0NEWCHAN01)");
+    for (const event of recorded) {
+      expect(event.actor?.type).toBe("user");
+      expect(event.actor?.name).toBe("Meera Nair");
+      expect(String(event.workspaceId)).toBe(acmeWorkspaceId);
+    }
+
+    await put("C0AGAIN0001"); // set from empty
+    expect((await events())[2].summary).toBe("Set the Slack approvals channel to C0AGAIN0001");
+
+    // A rejected value changes nothing and records nothing.
+    await put("general");
+    expect(await events()).toHaveLength(3);
+  });
+
   it("sends a test message to the saved channel", async () => {
     const admin = await loginAs("admin@acme.test");
     const res = await request(app).post("/api/integrations/slack/test").set("authorization", `Bearer ${admin}`);

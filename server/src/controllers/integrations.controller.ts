@@ -2,7 +2,8 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { successResponseWithData } from "../helpers/response";
 import { NotFoundError } from "../helpers/errors";
-import { getRequestUser } from "../middlewares/auth.middleware";
+import { getRequestUser, userActor } from "../middlewares/auth.middleware";
+import { recordAuditEvent } from "../services/audit/audit.service";
 import { Workspace } from "../models/workspace.model";
 import { isSlackConfigured, sendTestMessage } from "../services/slack/slack.service";
 
@@ -37,8 +38,20 @@ export async function getIntegrations(_req: Request, res: Response) {
 export async function saveSlackChannel(_req: Request, res: Response) {
   const user = getRequestUser(res);
   const { slackChannelId } = res.locals.body as z.infer<typeof slackChannelSchema>;
-  const updated = await Workspace.findOneAndUpdate({ _id: user.workspaceId }, { $set: { slackChannelId } }, { new: true }).lean();
-  if (!updated) throw new NotFoundError("We could not find your company.");
+  // The old value comes back from the same atomic update, so the audit line is always accurate.
+  const before = await Workspace.findOneAndUpdate({ _id: user.workspaceId }, { $set: { slackChannelId } }, { new: false }).lean();
+  if (!before) throw new NotFoundError("We could not find your company.");
+  const previous = before.slackChannelId || "";
+  if (previous !== slackChannelId) {
+    // Channel ids are not personal data. This is who pointed approvals somewhere new (or switched them off).
+    const summary = !slackChannelId
+      ? `Turned off Slack approvals (was channel ${previous})`
+      : previous
+        ? `Changed the Slack approvals channel from ${previous} to ${slackChannelId}`
+        : `Set the Slack approvals channel to ${slackChannelId}`;
+    await recordAuditEvent({ workspaceId: user.workspaceId, type: "integration_updated", actor: userActor(user), summary });
+  }
+  const updated = { slackChannelId };
   const message = slackChannelId ? "Slack channel saved." : "Slack approvals are turned off for your company.";
   return successResponseWithData(res, message, describeConnections(updated.slackChannelId || ""));
 }
