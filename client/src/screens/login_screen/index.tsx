@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { DisplayButton, DisplayError } from "components/display_components";
 import { authService } from "utils/services/api_services/agentguard_service";
@@ -17,6 +17,8 @@ const DEMO_ACCOUNTS = [
 export const LoginScreen = () => {
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
+  // Someone who opened a link while signed out (for example /activity?action=...) lands on that same link after signing in.
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,7 +30,7 @@ export const LoginScreen = () => {
     try {
       const response = await authService.login(signInEmail, signInPassword);
       setSession(response.data.token, response.data.user);
-      navigate("/approvals", { replace: true });
+      navigate(`${location.pathname}${location.search}`, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

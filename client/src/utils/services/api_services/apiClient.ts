@@ -33,3 +33,8 @@ export function getErrorMessage(error: unknown): string {
   }
   return "Something went wrong. Please try again.";
 }
+
+// True when the server answered "not found" (a wrong id, or one that belongs to another company).
+export function isNotFoundError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 404;
+}

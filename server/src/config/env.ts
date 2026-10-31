@@ -27,6 +27,10 @@ const envSchema = z.object({
   // Slack approvals are optional: with either value missing, the feature stays off.
   SLACK_BOT_TOKEN: z.string().optional().default(""),
   SLACK_SIGNING_SECRET: z.string().optional().default(""),
+  // AgentReplay recording is optional: without a key, nothing is recorded and nothing is sent.
+  AGENTREPLAY_API_KEY: z.string().optional().default(""),
+  // Only for a self-hosted AgentReplay. Empty means the hosted site.
+  AGENTREPLAY_URL: z.string().optional().default(""),
   // Demo mode turns on the "reset demo data" button and the agent playground.
   DEMO_MODE: z
     .enum(["true", "false"])

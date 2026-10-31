@@ -2,14 +2,14 @@
 
 **Let AI agents work on real company systems, with a person in charge.**
 
-AgentGuard sits between AI agents and a company's systems. Every action an agent wants to take goes through it first:
+**Undo is the point.** When an AI agent gets something wrong on a real company system, a manager puts it back with one click. To make that possible, AgentGuard sits between AI agents and the company's systems, and every action an agent wants to take goes through it first:
 
 1. It is **checked** against the company's rules by plain code. AI never decides whether an action is allowed.
 2. If it is risky, it **waits for a person** to approve it.
 3. It is **recorded**: which agent, working for whom, which rule decided, who approved it.
 4. If it was a mistake, a manager can **undo** it with one click.
 
-> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 191 automated tests, including concurrency and security cases.
+> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 203 automated tests, including concurrency and security cases.
 
 **Live demo:** [agentguard.sritaraksolutions.in](https://agentguard.sritaraksolutions.in) (free hosting: the first visit can take about a minute to wake up). Click any demo account to sign in.
 
@@ -26,6 +26,19 @@ AI agents now take real actions: refunds, cancellations, account changes. In 202
 - Teams can see that something went wrong, but cannot reverse it.
 
 AgentGuard answers all three with one layer every agent must pass through.
+
+## How this compares
+
+Other tools solve part of the same problem. This is how I understand them (details change quickly, so check their own docs):
+
+| Tool | What it gives you | What it leaves to you |
+| --- | --- | --- |
+| [LangGraph](https://langchain-ai.github.io/langgraph/) human-in-the-loop | `interrupt()` pauses a run until a person answers; saved checkpoints let you resume. | The approval screen, who may approve, the rules, and reversing anything the agent already did in your systems. |
+| [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/human_in_the_loop/) approvals | Mark a tool `needs_approval` (a rule can look at the arguments); the run pauses until it is approved or rejected. | The same: it lives inside the developer's code, and there is no business-user inbox or undo. |
+| [AWS AgentCore Policy](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-getting-started.html) | Cedar rules checked by plain code on every tool call through an AgentCore Gateway, default deny. | Written by engineers in Cedar, inside AWS. It allows or denies; it does not ask a person, and it does not undo. |
+| [Rubrik Agent Rewind](https://www.businesswire.com/news/home/20250812418116/en/Rubrik-Unveils-Agent-Rewind-For-When-AI-Agents-Go-Awry) | Snapshots before agent actions, so changes to applications and data can be rolled back. | It is about recovery. It is not where rules are written or where a manager approves a risky request first. |
+
+**What AgentGuard adds:** rules that business people can read, approvals for business users (in the web app or Slack, with expiry and separation of duties), and one-click undo by a manager, all in one layer that any agent reaches through REST or MCP. It decides with plain code, never with AI.
 
 ## The 3-minute demo
 
@@ -46,6 +59,16 @@ Then approve the big cancellation, open **Activity**, press **Undo**, and check 
 | Try an agent | Activity with Undo | Full history of one action |
 | --- | --- | --- |
 | ![Playground](docs/screenshots/try-an-agent.png) | ![Activity](docs/screenshots/activity.png) | ![History](docs/screenshots/action-history.png) |
+
+## Works with AgentReplay
+
+[AgentReplay](https://github.com/deepak-r-fullstack/agent_replay) is the sister project that records every step of an AI run so you can replay it. The two link both ways, and the link only ever **opens** things:
+
+- **A direct link to one action.** `/activity?action=<id>` opens the Activity screen with that action's details already open. Closing the details takes `?action=` out of the address. A wrong or malformed id, or one that belongs to another company, shows "We could not find that action." and the normal list. Someone who is signed out is sent to sign in and lands on the same link afterwards.
+- **Optional recording of playground runs.** Set `AGENTREPLAY_API_KEY` (an SDK key starting with `ar_`, from AgentReplay's *Apps and keys* screen) and each **Try an agent** request is recorded with [`@sritarak/agentreplay`](https://www.npmjs.com/package/@sritarak/agentreplay): one run named after the request, for the person the agent worked for; the AI planning call as an `llm` step; and each guarded action as a `tool` step whose output is its result or status (`done`, `pending_approval`, `denied`...). Every action step carries a link back here, `{ system: "agentguard", id: <action id>, url: <CLIENT_ORIGIN>/activity?action=<action id> }`, so a person replaying the run can jump to the action.
+- **Off by default.** Without the key nothing is recorded, nothing is sent and the package is never started. `AGENTREPLAY_URL` is only for a self-hosted AgentReplay.
+- **Never in the way.** Steps are queued and sent in the background with a short timeout. If AgentReplay is down, the playground answers exactly as before (a test covers this).
+- **No undo from outside.** Neither AgentReplay nor any agent key can undo anything. Undo stays with signed-in managers and admins, and every undo is in the audit log with the person's name.
 
 ## Architecture
 
@@ -159,13 +182,14 @@ npm test
 
 The first run downloads a MongoDB binary (about 100 MB) for the in-memory database. To use an existing MongoDB instead: `TEST_MONGO_URI=mongodb://127.0.0.1:27017 npm test`.
 
-What is covered (191 tests):
+What is covered (203 tests):
 
 - **Policy engine (pure):** every operator, the strictest rule wins, the safe default, daily limits, failing closed when an amount cannot be measured, irreversible actions, wildcard and disabled rules.
 - **Rule validation:** unknown actions, invented fields, wrong value types.
 - **End to end over HTTP:** auto-run, approval, the split attack, pending requests counting towards limits, cross-company isolation, unregistered actions, an agent sending its own "amount", role checks, separation of duties, idempotent retries, **20 simultaneous Undo clicks undo once**, refusing a stale undo, permanent actions, audit order, CSV formula-injection protection, AI drafting being optional.
 
 - **Reliability (new):** ten simultaneous requests never pass the limit; room given back on reject, undo, failure and expiry (and only once); a counter created mid-day still counts earlier actions; interrupted actions settled once even with six servers running the job; a late finish not overwriting recovery; expiry by sweep and at approval time; `expired` seen by agents over REST and MCP and in Slack; the admin setting; the audit chain (OK, edited, removed, cut off, relinked, per company, 40 simultaneous writes, entries from before the chain, demo reset).
+- **AgentReplay link (12 tests):** the deep link finds only the signed-in person's own company's action (another company's, made-up and malformed ids all say not found); recording is off and the package untouched without a key; with a key, one run with an AI step and a linked step per action (done, waiting, refused, failed); the playground still answers quickly when AgentReplay refuses the connection or never replies; no agent key, header or MCP tool can undo, and a manager still can.
 - **MCP (20 tests):** initialize, tools/list (names, hints, input shape), an allowed call, one that needs approval and then completes, a denied one, idempotent retries (also across MCP and REST), `Authorization: Bearer` and `x-agent-key`, unknown fields refused, agents seeing only their own actions, unexpected errors hidden from the agent.
 - **Slack (29 tests, Slack faked by mocking `fetch`):** signature accepted or rejected (wrong secret, changed body, stale timestamp), the approval message and its buttons, Slack down never failing the agent, the Slack user mapped by email, roles, same company and channel, separation of duties, two clicks at once, web decisions updating the message, the Connections settings, and channel changes in the audit log.
 

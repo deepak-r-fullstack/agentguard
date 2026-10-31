@@ -9,7 +9,7 @@ import {
   settingsService,
   teamService,
 } from "utils/services/api_services/agentguard_service";
-import { getErrorMessage } from "utils/services/api_services/apiClient";
+import { getErrorMessage, isNotFoundError } from "utils/services/api_services/apiClient";
 import { showToast } from "utils/store/toastStore";
 import { PolicyInput, UserRole } from "utils/types";
 
@@ -46,6 +46,8 @@ export function useActionDetail(id: string | null) {
     queryKey: queryKeys.action(id || ""),
     queryFn: () => actionService.get(id as string).then((response) => response.data),
     enabled: Boolean(id),
+    // A wrong or foreign id will not become right by asking again (people can arrive here from a link).
+    retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
   });
 }
 
