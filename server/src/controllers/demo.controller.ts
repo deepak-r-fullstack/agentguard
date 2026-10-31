@@ -9,6 +9,7 @@ import { NotFoundError, ServiceUnavailableError } from "../helpers/errors";
 import { requestAction, toActionDto } from "../services/actions/guard.service";
 import { PLAYGROUND_AGENT_NAME, resetWorkspaceDemoData } from "../services/demo/demo.service";
 import { planActionsFromInstruction } from "../services/llm/agentPlanner.service";
+import { startPlaygroundRecording } from "../services/replay/agentReplay.service";
 import { AppError } from "../helpers/errors";
 
 export const playgroundActionSchema = z.object({
@@ -78,8 +79,18 @@ export async function playgroundAct(_req: Request, res: Response) {
   const user = getRequestUser(res);
   const input = res.locals.body as z.infer<typeof playgroundActionSchema>;
   const agent = await getPlaygroundAgent(user.workspaceId);
-  const record = await requestAction(agent, { ...input, idempotencyKey: crypto.randomUUID() });
-  return successResponseWithData(res, "Sent to AgentGuard.", toActionDto(record));
+  // Recorded in AgentReplay only when a key is set; otherwise this does nothing.
+  const recording = startPlaygroundRecording({ name: input.action, onBehalfOf: input.onBehalfOf });
+  try {
+    const record = await requestAction(agent, { ...input, idempotencyKey: crypto.randomUUID() });
+    recording.recordAction(input.action, input.params, { record });
+    return successResponseWithData(res, "Sent to AgentGuard.", toActionDto(record));
+  } catch (err) {
+    recording.recordAction(input.action, input.params, { errorMessage: err instanceof AppError ? err.message : "The action failed." });
+    throw err;
+  } finally {
+    recording.finish();
+  }
 }
 
 // An AI agent plans actions from plain words; each planned action still goes through the guard.
@@ -87,24 +98,32 @@ export async function playgroundChat(_req: Request, res: Response) {
   const user = getRequestUser(res);
   const { instruction, onBehalfOf } = res.locals.body as z.infer<typeof playgroundChatSchema>;
   const agent = await getPlaygroundAgent(user.workspaceId);
-  const plan = await planActionsFromInstruction(user.workspaceId, instruction);
+  // Recorded in AgentReplay only when a key is set; otherwise this does nothing.
+  const recording = startPlaygroundRecording({ name: instruction, onBehalfOf });
+  try {
+    const plan = await planActionsFromInstruction(user.workspaceId, instruction, recording);
 
-  const outcomes = [];
-  for (const planned of plan.actions) {
-    try {
-      const record = await requestAction(agent, {
-        action: planned.action,
-        params: planned.params,
-        reason: planned.reason,
-        onBehalfOf,
-        idempotencyKey: crypto.randomUUID(),
-      });
-      outcomes.push({ planned, outcome: toActionDto(record), error: null });
-    } catch (err) {
-      // A bad plan step (unknown booking, invalid params) is reported, not fatal.
-      if (!(err instanceof AppError) || err instanceof ServiceUnavailableError) throw err;
-      outcomes.push({ planned, outcome: null, error: err.message });
+    const outcomes = [];
+    for (const planned of plan.actions) {
+      try {
+        const record = await requestAction(agent, {
+          action: planned.action,
+          params: planned.params,
+          reason: planned.reason,
+          onBehalfOf,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        recording.recordAction(planned.action, planned.params, { record });
+        outcomes.push({ planned, outcome: toActionDto(record), error: null });
+      } catch (err) {
+        // A bad plan step (unknown booking, invalid params) is reported, not fatal.
+        if (!(err instanceof AppError) || err instanceof ServiceUnavailableError) throw err;
+        recording.recordAction(planned.action, planned.params, { errorMessage: err.message });
+        outcomes.push({ planned, outcome: null, error: err.message });
+      }
     }
+    return successResponseWithData(res, plan.message || "Plan finished.", { message: plan.message, outcomes });
+  } finally {
+    recording.finish();
   }
-  return successResponseWithData(res, plan.message || "Plan finished.", { message: plan.message, outcomes });
 }

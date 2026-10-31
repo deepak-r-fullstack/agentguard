@@ -2,14 +2,28 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 import { DisplayError, DisplayLoading, DisplayStatusBadge } from "components/display_components";
 import { useActionDetail } from "utils/hooks/useAgentGuardQueries";
-import { getErrorMessage } from "utils/services/api_services/apiClient";
+import { getErrorMessage, isNotFoundError } from "utils/services/api_services/apiClient";
 import { formatDateTime } from "utils/helper_functions/format";
 
 const ACTOR_LABEL = { agent: "Agent", user: "Person", system: "AgentGuard" };
 
 // Everything about one action: what was asked, what we checked, and the full history.
-export const ActionDetailDrawer = ({ actionId, onClose }: { actionId: string; onClose: () => void }) => {
+// "onNotFound" is for links: when the id is wrong or belongs to another company, the screen decides what to show instead.
+export const ActionDetailDrawer = ({
+  actionId,
+  onClose,
+  onNotFound,
+}: {
+  actionId: string;
+  onClose: () => void;
+  onNotFound?: () => void;
+}) => {
   const { data, isLoading, error } = useActionDetail(actionId);
+  const notFound = isNotFoundError(error);
+
+  useEffect(() => {
+    if (notFound) onNotFound?.();
+  }, [notFound, onNotFound]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -29,7 +43,7 @@ export const ActionDetailDrawer = ({ actionId, onClose }: { actionId: string; on
         </div>
 
         {isLoading && <DisplayLoading />}
-        {error && <DisplayError message={getErrorMessage(error)} />}
+        {error && !(notFound && onNotFound) && <DisplayError message={getErrorMessage(error)} />}
 
         {data && (
           <>

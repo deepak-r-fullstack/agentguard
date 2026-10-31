@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Lock, RotateCcw } from "lucide-react";
 import {
   DisplayButton,
@@ -12,6 +13,7 @@ import { useActionDecision, useActions } from "utils/hooks/useAgentGuardQueries"
 import { getErrorMessage } from "utils/services/api_services/apiClient";
 import { formatDateTime } from "utils/helper_functions/format";
 import { useAuthStore } from "utils/store/authStore";
+import { showToast } from "utils/store/toastStore";
 import { AgentAction } from "utils/types";
 import { ActionDetailDrawer } from "./ActionDetailDrawer";
 
@@ -59,9 +61,37 @@ const UndoButton = ({ item }: { item: AgentAction }) => {
 export const ActivityScreen = () => {
   const user = useAuthStore((state) => state.user);
   const [status, setStatus] = useState<string | undefined>(undefined);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // The open action lives in the address (/activity?action=<id>), so a link opens it and Back closes it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openId = searchParams.get("action");
   const { data, isLoading, error, refetch } = useActions(status ? { status } : {});
   const canUndo = user?.role === "admin" || user?.role === "manager";
+
+  const openAction = (id: string) =>
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("action", id);
+      return next;
+    });
+
+  // Closing (or a link that leads nowhere) takes ?action= out of the address.
+  const closeAction = useCallback(
+    () =>
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.delete("action");
+          return next;
+        },
+        { replace: true }
+      ),
+    [setSearchParams]
+  );
+
+  const onActionNotFound = useCallback(() => {
+    showToast("We could not find that action.", "info");
+    closeAction();
+  }, [closeAction]);
 
   return (
     <>
@@ -106,7 +136,7 @@ export const ActivityScreen = () => {
             <li key={item.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
               <button
                 type="button"
-                onClick={() => setOpenId(item.id)}
+                onClick={() => openAction(item.id)}
                 className="min-w-0 flex-1 text-left"
                 aria-label={`Open details: ${item.summary}`}
               >
@@ -138,7 +168,7 @@ export const ActivityScreen = () => {
         </ul>
       )}
 
-      {openId && <ActionDetailDrawer actionId={openId} onClose={() => setOpenId(null)} />}
+      {openId && <ActionDetailDrawer actionId={openId} onClose={closeAction} onNotFound={onActionNotFound} />}
     </>
   );
 };
