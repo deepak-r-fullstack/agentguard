@@ -203,6 +203,16 @@ describe("idempotency", () => {
     });
     expect(reused.status).toBe(409);
   });
+  it("refuses competing uses of one key for different booking details", async () => {
+    const idempotencyKey = newKey();
+    const replies = await Promise.all(["BK-1002", "BK-1003"].map((bookingCode) =>
+      agentRequest(acmeAgentKey, { action: "booking.cancel", params: { bookingCode }, idempotencyKey })
+    ));
+    expect(replies.map((reply) => reply.status).sort()).toEqual([200, 409]);
+    expect(await ActionRecord.countDocuments({ idempotencyKey })).toBe(1);
+    expect(await Booking.countDocuments({ code: { $in: ["BK-1002", "BK-1003"] }, status: "cancelled" })).toBe(1);
+  });
+
 });
 
 describe("undo", () => {

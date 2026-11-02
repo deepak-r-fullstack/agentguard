@@ -14,6 +14,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { to: "/walkthrough", label: "Guided demo", icon: ShieldCheck, roles: ["admin", "manager"] },
   { to: "/approvals", label: "Approvals", icon: Inbox, showsPending: true },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/rules", label: "Rules", icon: SlidersHorizontal },

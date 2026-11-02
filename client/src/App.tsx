@@ -12,6 +12,7 @@ import { CompanyScreen } from "screens/company_screen";
 import { AuditScreen } from "screens/audit_screen";
 import { AgentsScreen } from "screens/agents_screen";
 import { ConnectionsScreen } from "screens/connections_screen";
+import { WalkthroughScreen } from "screens/walkthrough_screen";
 import { TeamScreen } from "screens/team_screen";
 
 const RequireRole = ({ roles, children }: { roles: UserRole[]; children: JSX.Element }) => {
@@ -27,6 +28,7 @@ export const App = () => {
       {token ? (
         <Routes>
           <Route element={<AppLayout />}>
+            <Route path="/walkthrough" element={<RequireRole roles={["admin", "manager"]}><WalkthroughScreen /></RequireRole>} />
             <Route path="/approvals" element={<ApprovalsScreen />} />
             <Route path="/activity" element={<ActivityScreen />} />
             <Route path="/rules" element={<RulesScreen />} />

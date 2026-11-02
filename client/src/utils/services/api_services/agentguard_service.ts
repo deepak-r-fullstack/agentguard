@@ -85,6 +85,8 @@ export const integrationService = {
 };
 
 export const demoService = {
+  startWalkthrough: () => unwrap<{ bookingCode: string }>(apiClient.post("/demo/walkthrough")),
+  recording: () => unwrap<{ configured: boolean }>(apiClient.get("/demo/recording")),
   company: () => unwrap<CompanyData>(apiClient.get("/demo/company")),
   reset: () => unwrap<{ reset: boolean }>(apiClient.post("/demo/reset")),
   act: (input: { action: string; params: Record<string, unknown>; reason: string; onBehalfOf: string }) =>

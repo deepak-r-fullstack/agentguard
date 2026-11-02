@@ -35,6 +35,7 @@ export interface EvaluationInput {
   // Everything a rule may read: { params, facts, agentId, onBehalfOf }.
   context: Record<string, unknown>;
   irreversible: boolean;
+  requiresApproval?: boolean;
   // Total already used today for each rule that has a daily limit (rule id -> sum).
   usageByRuleId?: Record<string, number>;
   // When a daily limit adds up one of these fields (e.g. "facts.amount"), its reason shows
@@ -164,6 +165,11 @@ export function evaluatePolicies(rules: PolicyRule[], input: EvaluationInput): E
   if (input.irreversible && decision !== "deny") {
     decision = "require_approval";
     reasons.push("This action cannot be undone, so a person must approve it.");
+  }
+
+  if (input.requiresApproval && decision === "allow") {
+    decision = "require_approval";
+    reasons.push("External sandbox changes always require a person to approve.");
   }
 
   return {

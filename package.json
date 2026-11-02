@@ -14,10 +14,12 @@
     "seed": "npm run seed -w server",
     "test": "npm test -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
-    "build": "npm run build -w server && npm run build -w client"
+    "build": "npm run build -w server && npm run build -w client",
+    "check:browser": "npm run build && node checks/walkthrough.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.2.5"
+    "concurrently": "^9.2.5",
+    "playwright": "^1.64.1"
   },
   "engines": {
     "node": ">=20"

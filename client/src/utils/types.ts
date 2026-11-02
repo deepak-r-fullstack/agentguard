@@ -37,6 +37,7 @@ export interface TimelineEvent {
 }
 
 export interface AgentAction {
+  recording?: { runId: string; url: string; state: "queued" };
   id: string;
   action: string;
   actionLabel: string;

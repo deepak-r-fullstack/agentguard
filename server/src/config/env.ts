@@ -31,6 +31,11 @@ const envSchema = z.object({
   AGENTREPLAY_API_KEY: z.string().optional().default(""),
   // Only for a self-hosted AgentReplay. Empty means the hosted site.
   AGENTREPLAY_URL: z.string().optional().default(""),
+  // Optional private GitHub sandbox. Never enabled while public demo mode is on.
+  GITHUB_SANDBOX_TOKEN: z.string().default(""),
+  GITHUB_SANDBOX_REPOSITORY: z.string().default(""),
+  GITHUB_SANDBOX_WORKSPACE_ID: z.string().default(""),
+  GITHUB_SANDBOX_LABEL: z.string().trim().min(1).max(50).default("agentguard-demo"),
   // Demo mode turns on the "reset demo data" button and the agent playground.
   DEMO_MODE: z
     .enum(["true", "false"])

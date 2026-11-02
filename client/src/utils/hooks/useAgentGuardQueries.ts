@@ -46,6 +46,7 @@ export function useActionDetail(id: string | null) {
     queryKey: queryKeys.action(id || ""),
     queryFn: () => actionService.get(id as string).then((response) => response.data),
     enabled: Boolean(id),
+    refetchInterval: (query) => ["pending_approval", "executing", "undoing"].includes(query.state.data?.status || "") ? LIVE_REFRESH_MS : false,
     // A wrong or foreign id will not become right by asking again (people can arrive here from a link).
     retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
   });
