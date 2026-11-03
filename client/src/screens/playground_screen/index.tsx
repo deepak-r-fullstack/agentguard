@@ -203,6 +203,7 @@ export const PlaygroundScreen = () => {
         }
       />
 
+      <p className="mb-6 text-sm"><Link to="/walkthrough" className="font-semibold text-brand underline">Start the guided approval and undo walkthrough →</Link></p>
       <div className="mb-6 max-w-sm">
         <label htmlFor="on-behalf" className="field-label">
           The agent is working for

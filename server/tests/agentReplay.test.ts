@@ -222,6 +222,7 @@ describe("recording playground runs in AgentReplay", () => {
 
     const { steps, runs } = await waitForIngest();
     expect(runs[0].name).toBe("booking.cancel");
+    expect(res.body.data.recording).toEqual({ runId: runs[0].id, url: "https://agentreplay.sritaraksolutions.in/runs?externalId=" + runs[0].id, state: "queued" });
     expect(steps).toHaveLength(1);
     expect(steps[0].externalRef?.id).toBe(res.body.data.id);
   });

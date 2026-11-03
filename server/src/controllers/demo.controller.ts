@@ -9,7 +9,8 @@ import { NotFoundError, ServiceUnavailableError } from "../helpers/errors";
 import { requestAction, toActionDto } from "../services/actions/guard.service";
 import { PLAYGROUND_AGENT_NAME, resetWorkspaceDemoData } from "../services/demo/demo.service";
 import { planActionsFromInstruction } from "../services/llm/agentPlanner.service";
-import { startPlaygroundRecording } from "../services/replay/agentReplay.service";
+import { Workspace } from "../models/workspace.model";
+import { isAgentReplayConfigured, startPlaygroundRecording } from "../services/replay/agentReplay.service";
 import { AppError } from "../helpers/errors";
 
 export const playgroundActionSchema = z.object({
@@ -84,7 +85,7 @@ export async function playgroundAct(_req: Request, res: Response) {
   try {
     const record = await requestAction(agent, { ...input, idempotencyKey: crypto.randomUUID() });
     recording.recordAction(input.action, input.params, { record });
-    return successResponseWithData(res, "Sent to AgentGuard.", toActionDto(record));
+    return successResponseWithData(res, "Sent to AgentGuard.", { ...toActionDto(record), ...(recording.link ? { recording: recording.link } : {}) });
   } catch (err) {
     recording.recordAction(input.action, input.params, { errorMessage: err instanceof AppError ? err.message : "The action failed." });
     throw err;
@@ -126,4 +127,20 @@ export async function playgroundChat(_req: Request, res: Response) {
   } finally {
     recording.finish();
   }
+}
+
+// Creates only a new practice booking. Existing bookings, rules and history stay intact.
+export async function startWalkthrough(_req: Request, res: Response) {
+  const user = getRequestUser(res);
+  const workspace = await Workspace.findOne({ _id: user.workspaceId, slug: "acme-travels" }).lean();
+  if (!workspace) throw new NotFoundError("Use an Acme demo manager account for this walkthrough.");
+  const customer = await Customer.findOne({ workspaceId: user.workspaceId, code: "CU-101" }).lean();
+  if (!customer) throw new NotFoundError("Practice data is being reset. Please try again shortly.");
+  const bookingCode = `DEMO-${crypto.randomUUID().toUpperCase()}`;
+  await Booking.create({ workspaceId: user.workspaceId, customerId: customer._id, code: bookingCode, title: "Guided practice booking", amount: 7500, startsAt: new Date(Date.now() + 14 * 86400000) });
+  return successResponseWithData(res, "Your practice booking is ready.", { bookingCode }, 201);
+}
+
+export async function getRecordingStatus(_req: Request, res: Response) {
+  return successResponseWithData(res, "Optional recording status.", { configured: isAgentReplayConfigured() });
 }

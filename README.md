@@ -9,7 +9,7 @@
 3. It is **recorded**: which agent, working for whom, which rule decided, who approved it.
 4. If it was a mistake, a manager can **undo** it with one click.
 
-> Built with MongoDB, Express, React and Node.js (TypeScript throughout). 203 automated tests, including concurrency and security cases.
+> Built with MongoDB, Express, React and Node.js (TypeScript throughout). Automated tests cover concurrency, company boundaries, approvals, recovery and external API failures.
 
 **Live demo:** [agentguard.sritaraksolutions.in](https://agentguard.sritaraksolutions.in) (free hosting: the first visit can take about a minute to wake up). Click any demo account to sign in.
 
@@ -39,6 +39,16 @@ Other tools solve part of the same problem. This is how I understand them (detai
 | [Rubrik Agent Rewind](https://www.businesswire.com/news/home/20250812418116/en/Rubrik-Unveils-Agent-Rewind-For-When-AI-Agents-Go-Awry) | Snapshots before agent actions, so changes to applications and data can be rolled back. | It is about recovery. It is not where rules are written or where a manager approves a risky request first. |
 
 **What AgentGuard adds:** rules that business people can read, approvals for business users (in the web app or Slack, with expiry and separation of duties), and one-click undo by a manager, all in one layer that any agent reaches through REST or MCP. It decides with plain code, never with AI.
+
+## Guided portfolio demo
+
+Open [/walkthrough](https://agentguard.sritaraksolutions.in/walkthrough), sign in as a demo manager, and prepare a fresh ₹7,500 practice booking. Request cancellation, inspect the pending state, approve, verify the cancellation and undo it. Each attempt has its own booking; starting one never resets other visitors' data. Company policies and daily limits remain shared, so the UI explains denied or interrupted requests. Practice creation is limited to ten attempts per IP per hour.
+
+AgentReplay recording status is shown explicitly. When no recording key is configured, the page links to AgentReplay's separate wrong-refund sample rather than claiming the two live demos share a run.
+
+## Real GitHub sandbox integration
+
+An optional private-workspace adapter labels a real GitHub issue through REST or MCP, always requires human approval, and can remove its label again after checking for newer changes. It is disabled on public demo servers and public demo workspaces. See [setup, tests and external concurrency limits](docs/github-sandbox.md). GitHub writes cannot be made atomic with AgentGuard's database; ambiguous writes require manual reconciliation.
 
 ## The 3-minute demo
 

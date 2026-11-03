@@ -21,3 +21,14 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+      - name: Install browser for guided-demo checks
+        run: npx playwright install --with-deps chromium
+      - name: Check guided booking workflow on desktop and phone
+        run: node checks/walkthrough.mjs
+      - name: Save browser evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: walkthrough-screenshots
+          path: checks/screenshots/

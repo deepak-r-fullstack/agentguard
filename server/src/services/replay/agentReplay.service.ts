@@ -14,6 +14,8 @@ import { ActionRecordDoc } from "../../models/actionRecord.model";
 // ---------------------------------------------------------------------------
 
 export interface PlaygroundRecording {
+  /** Queued recording, not proof of successful ingestion. The destination still requires its own sign-in. */
+  link?: { runId: string; url: string; state: "queued" };
   /** Runs the AI planning call and records it as an "llm" step. Your result and errors come back unchanged. */
   recordPlanning<T>(instruction: string, work: () => Promise<T>): Promise<T>;
   /** Records one guarded action as a "tool" step that links back to its Activity page. */
@@ -57,7 +59,18 @@ export function startPlaygroundRecording(input: { name: string; onBehalfOf: stri
     return NOT_RECORDING;
   }
 
+  let link: PlaygroundRecording["link"];
+  try {
+    const destination = new URL(env.AGENTREPLAY_URL || "https://agentreplay.sritaraksolutions.in");
+    if (["https:", "http:"].includes(destination.protocol) && !destination.username && !destination.password) {
+      link = { runId: run.id, url: destination.toString().replace(/\/+$/, "") + "/runs?externalId=" + encodeURIComponent(run.id), state: "queued" };
+    }
+  } catch {
+    // Recording may still work without a browser destination; never return an unsafe link.
+  }
+
   return {
+    link,
     recordPlanning: (instruction, work) =>
       run.trace("llm", "plan_actions", work, { input: instruction, model: env.LLM_MODEL || env.LLM_PROVIDER }),
 

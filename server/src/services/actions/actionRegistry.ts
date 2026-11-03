@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Booking, BookingDoc, Customer, CustomerDoc, Outbox } from "../../models/demo.model";
 import { BadRequestError, ConflictError, NotFoundError } from "../../helpers/errors";
 import { DEFAULT_CURRENCY, daysBetween, formatDate, formatMoney } from "../../utils/format";
+import { githubSandboxAction, isGitHubSandboxConfigured } from "../github/githubSandbox.service";
 import { MoneyFields } from "./money.service";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,10 @@ import { MoneyFields } from "./money.service";
 
 export interface ActionContext {
   workspaceId: Types.ObjectId;
+  // Execution metadata is supplied by the guard, never by the agent.
+  approvedFacts?: Record<string, unknown>;
+  beforeSnapshot?: unknown;
+  completedResult?: Record<string, unknown> | null;
   // The workspace's currency for the plain-English summary. Only prepare() needs it.
   currency?: string;
 }
@@ -37,6 +42,7 @@ export interface ActionDefinition<P = any, S = any> {
   label: string;
   description: string;
   irreversible: boolean;
+  requiresApproval?: boolean;
   paramsSchema: z.ZodType<P>;
   ruleFields: RuleField[];
   // Which facts / result fields are money, so agents always get them with their currency.
@@ -401,6 +407,7 @@ const definitions: ActionDefinition[] = [
   applyDiscount,
   updateCustomerEmail,
   sendCustomerEmail,
+  githubSandboxAction,
 ];
 
 export const actionRegistry: Record<string, ActionDefinition> = Object.fromEntries(
@@ -416,12 +423,12 @@ export function getActionDefinition(key: string): ActionDefinition {
 // The full definitions (including each action's params schema). The MCP server turns
 // every one of these into a tool, so a new action shows up for MCP clients with no extra work.
 export function listActionDefinitions(): ActionDefinition[] {
-  return [...definitions];
+  return definitions.filter((definition) => definition.key !== githubSandboxAction.key || isGitHubSandboxConfigured());
 }
 
 // Public description of the catalog, used by the UI and by the AI rule drafter.
 export function describeActionCatalog() {
-  return definitions.map((definition) => ({
+  return listActionDefinitions().map((definition) => ({
     key: definition.key,
     label: definition.label,
     description: definition.description,

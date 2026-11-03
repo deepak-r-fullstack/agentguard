@@ -8,3 +8,6 @@ server/env/*.env
 !server/env/*.env.example
 client/.env.local
 *.tsbuildinfo
+
+# Browser QA artifacts
+checks/screenshots/

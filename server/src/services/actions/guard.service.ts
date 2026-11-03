@@ -4,7 +4,7 @@ import { AgentDoc } from "../../models/agent.model";
 import { ActionStatus } from "../../constants";
 import { AppError, BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../helpers/errors";
 import { logger, serializeError } from "../../utils/logger";
-import { Actor, recordAuditEvent, SYSTEM_ACTOR } from "../audit/audit.service";
+import { Actor, canonicalJson, recordAuditEvent, SYSTEM_ACTOR } from "../audit/audit.service";
 import { evaluatePolicies } from "../policy/policyEngine";
 import { getEnabledRules } from "../policy/policy.service";
 import { decideAndReserve, releaseLimitReservations, releaseUnusedReservations } from "../policy/dailyLimit.service";
@@ -47,6 +47,15 @@ function safeErrorMessage(err: unknown): string {
   return err instanceof AppError ? err.message : "The action failed because of an unexpected error.";
 }
 
+// Both the early lookup and a concurrent insert's losing request must agree on
+// what the key means. A reused key cannot silently return another request's result.
+function sameRequest(record: ActionRecordDoc, input: ActionRequestInput): ActionRecordDoc {
+  if (record.action !== input.action || canonicalJson(record.params) !== canonicalJson(input.params) || record.onBehalfOf !== input.onBehalfOf) {
+    throw new ConflictError("This idempotency key was already used for a different action, details or person.");
+  }
+  return record;
+}
+
 export async function requestAction(agent: AgentIdentity, input: ActionRequestInput): Promise<ActionRecordDoc> {
   const workspaceId = agent.workspaceId as Types.ObjectId;
   const currency = await getWorkspaceCurrency(workspaceId);
@@ -58,12 +67,7 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
     agentId: agent._id,
     idempotencyKey: input.idempotencyKey,
   }).lean<ActionRecordDoc>();
-  if (existing) {
-    if (existing.action !== input.action) {
-      throw new ConflictError("This idempotency key was already used for a different action.");
-    }
-    return existing;
-  }
+  if (existing) return sameRequest(existing, input);
 
   // 2. Only registered actions with valid params.
   let definition;
@@ -103,6 +107,7 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
       evaluatePolicies(rules, {
         action: definition.key,
         irreversible: definition.irreversible,
+        requiresApproval: definition.requiresApproval,
         usageByRuleId,
         money: { currency, fields: definition.moneyFields.facts.map((field) => `facts.${field}`) },
         context,
@@ -146,7 +151,7 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
         agentId: agent._id,
         idempotencyKey: input.idempotencyKey,
       }).lean<ActionRecordDoc>();
-      if (winner) return winner;
+      if (winner) return sameRequest(winner, input);
     }
     throw err;
   }
@@ -209,13 +214,15 @@ async function executeAction(actionId: Types.ObjectId, workspaceId: Types.Object
   if (!record) throw new ConflictError("This action is not ready to run.");
 
   const definition = getActionDefinition(record.action);
-  const ctx: ActionContext = { workspaceId };
+  const ctx: ActionContext = { workspaceId, approvedFacts: record.facts };
   const latest = () => ActionRecord.findOne({ _id: actionId, workspaceId }).lean<ActionRecordDoc>() as Promise<ActionRecordDoc>;
 
   try {
     if (definition.snapshot) {
       const beforeSnapshot = await definition.snapshot(record.params, ctx);
-      await ActionRecord.updateOne({ _id: record._id, workspaceId, status: "executing" }, { $set: { beforeSnapshot } });
+      const saved = await ActionRecord.updateOne({ _id: record._id, workspaceId, status: "executing" }, { $set: { beforeSnapshot } });
+      if (!saved.matchedCount) return latest();
+      ctx.beforeSnapshot = beforeSnapshot;
     }
     const result = await definition.run(record.params, ctx);
     const done = await settleExecution(record, { status: "done", result, executedAt: new Date() });
@@ -325,7 +332,7 @@ export async function undoAction(workspaceId: Types.ObjectId, actionId: string, 
   if (!record) throw new ConflictError("This action cannot be undone right now (it may already be undone).");
 
   try {
-    await definition.undo(record.beforeSnapshot, { workspaceId });
+    await definition.undo(record.beforeSnapshot, { workspaceId, completedResult: record.result });
     const undone = await ActionRecord.findOneAndUpdate(
       { _id: record._id, workspaceId, status: "undoing" },
       { $set: { status: "undone", undoneBy: user.name, undoneAt: new Date() } },
