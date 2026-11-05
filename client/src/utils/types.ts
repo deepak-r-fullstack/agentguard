@@ -52,6 +52,8 @@ export interface AgentAction {
   irreversible: boolean;
   status: ActionStatus;
   canUndo: boolean;
+  // True for the guided walkthrough's practice booking (its journey can be recorded in AgentReplay).
+  guidedDemo?: boolean;
   result: Record<string, unknown> | null;
   errorMessage: string;
   approvedBy: string;
@@ -193,4 +195,12 @@ export interface ChatOutcome {
   planned: { action: string; params: Record<string, unknown>; reason: string };
   outcome: AgentAction | null;
   error: string | null;
+}
+
+// Where a guided journey's AgentReplay recording stands. "waiting": nobody has decided yet, so there is nothing to record.
+export type GuidedRecordingState = "waiting" | "pending" | "available" | "unavailable";
+export interface GuidedRecordingStatus {
+  state: GuidedRecordingState;
+  message: string;
+  url?: string;
 }

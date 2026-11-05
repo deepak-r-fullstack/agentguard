@@ -1,11 +1,54 @@
-import { useEffect } from "react";
-import { X } from "lucide-react";
-import { DisplayError, DisplayLoading, DisplayStatusBadge } from "components/display_components";
-import { useActionDetail } from "utils/hooks/useAgentGuardQueries";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { RotateCcw, X } from "lucide-react";
+import { DisplayButton, DisplayError, DisplayLoading, DisplayStatusBadge } from "components/display_components";
+import { useActionDecision, useActionDetail } from "utils/hooks/useAgentGuardQueries";
+import { useAuthStore } from "utils/store/authStore";
+import { AgentAction } from "utils/types";
 import { getErrorMessage, isNotFoundError } from "utils/services/api_services/apiClient";
 import { formatDateTime } from "utils/helper_functions/format";
 
 const ACTOR_LABEL = { agent: "Agent", user: "Person", system: "AgentGuard" };
+
+// Undo from the details, where a link from AgentReplay lands. Asks once more, then says plainly what happened.
+const DrawerUndo = ({ action }: { action: AgentAction }) => {
+  const role = useAuthStore((state) => state.user?.role);
+  const undo = useActionDecision("undo");
+  const [confirming, setConfirming] = useState(false);
+
+  if (action.status === "undone") {
+    return (
+      <p role="status" className="mt-4 rounded-md border border-undone/30 bg-undone-tint px-4 py-3 text-sm text-undone">
+        <span className="font-semibold">Undone{action.undoneBy ? ` by ${action.undoneBy}` : ""}.</span> Everything this action changed is back the way it was.
+      </p>
+    );
+  }
+  if (!action.canUndo) return null;
+  if (role !== "admin" && role !== "manager") {
+    return <p className="mt-4 text-sm text-ink-soft">A manager or admin can undo this action.</p>;
+  }
+  return (
+    <div className="mt-4 rounded-md border border-line px-4 py-3">
+      <p className="text-sm text-ink-soft">Undo puts everything this action changed back the way it was. It is recorded in the history with your name.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {confirming ? (
+          <>
+            <DisplayButton variant="primary" loading={undo.isPending} onClick={() => undo.mutate({ id: action.id }, { onSettled: () => setConfirming(false) })}>
+              Yes, undo it
+            </DisplayButton>
+            <DisplayButton variant="ghost" disabled={undo.isPending} onClick={() => setConfirming(false)}>
+              Keep it
+            </DisplayButton>
+          </>
+        ) : (
+          <DisplayButton icon={<RotateCcw className="h-4 w-4" aria-hidden />} onClick={() => setConfirming(true)}>
+            Undo this action
+          </DisplayButton>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // Everything about one action: what was asked, what we checked, and the full history.
 // "onNotFound" is for links: when the id is wrong or belongs to another company, the screen decides what to show instead.
@@ -53,6 +96,15 @@ export const ActionDetailDrawer = ({
             </div>
             <h2 className="mt-3 font-serif text-xl leading-snug">{data.summary}</h2>
             {data.errorMessage && <p className="mt-3 text-sm text-refused">{data.errorMessage}</p>}
+            <DrawerUndo action={data} />
+            {data.guidedDemo && typeof data.params.bookingCode === "string" && (
+              <Link
+                to={`/walkthrough?booking=${encodeURIComponent(data.params.bookingCode)}&action=${encodeURIComponent(data.id)}`}
+                className="mt-3 inline-block text-sm font-semibold text-brand underline"
+              >
+                Back to the guided demo →
+              </Link>
+            )}
 
             <dl className="mt-6 grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm">
               <dt className="text-ink-faint">Agent</dt>

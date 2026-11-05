@@ -13,6 +13,7 @@ import { notifyApprovalRequested, notifyDecisionMade } from "../slack/slack.serv
 import { DEFAULT_CURRENCY } from "../../utils/format";
 import { ActionContext, getActionDefinition } from "./actionRegistry";
 import { getWorkspaceCurrency, withMoneyFields } from "./money.service";
+import { GUIDED_BOOKING_JOURNEY, recordGuidedJourney } from "../replay/guidedJourney.service";
 
 // ---------------------------------------------------------------------------
 // The guard: the one entry point an agent may use to change anything.
@@ -30,6 +31,8 @@ export interface ActionRequestInput {
   reason?: string;
   onBehalfOf: string;
   idempotencyKey: string;
+  // Set only by the guided walkthrough (never by the agent APIs), so its journey can be recorded once it is decided.
+  demoJourney?: typeof GUIDED_BOOKING_JOURNEY;
 }
 
 type AgentIdentity = Pick<AgentDoc, "_id" | "workspaceId" | "name">;
@@ -138,6 +141,7 @@ export async function requestAction(agent: AgentIdentity, input: ActionRequestIn
       irreversible: definition.irreversible,
       status: initialStatus,
       idempotencyKey: input.idempotencyKey,
+      demoJourney: input.demoJourney || "",
       decidedAt: evaluation.decision === "require_approval" ? undefined : new Date(),
       expiresAt,
       limitReservations: reservations,
@@ -292,6 +296,7 @@ export async function approveAction(workspaceId: Types.ObjectId, actionId: strin
   });
   const executed = await executeAction(record._id, workspaceId, approver);
   notifyDecisionMade(executed); // keeps the Slack message in step when the web app made the decision
+  recordGuidedJourney(executed); // optional AgentReplay recording of the guided demo; never waits, never fails the approval
   return executed;
 }
 
@@ -313,6 +318,7 @@ export async function rejectAction(workspaceId: Types.ObjectId, actionId: string
   });
   const rejected = record.toObject() as ActionRecordDoc;
   notifyDecisionMade(rejected);
+  recordGuidedJourney(rejected);
   return rejected;
 }
 
@@ -417,6 +423,7 @@ export function toActionDto(record: ActionRecordDoc) {
     irreversible: record.irreversible,
     status: record.status,
     canUndo: record.status === "done" && Boolean(definition?.undo),
+    guidedDemo: record.demoJourney === GUIDED_BOOKING_JOURNEY,
     result: record.result,
     errorMessage: record.errorMessage,
     approvedBy: record.approvedBy,

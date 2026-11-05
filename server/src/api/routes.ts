@@ -171,7 +171,25 @@ router.post(
 // ---------- demo ----------
 // Separate from agent traffic: limits practice-data creation without slowing ordinary approvals.
 const walkthroughLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: isTest ? 1000 : 10, standardHeaders: true, legacyHeaders: false });
-router.post("/demo/walkthrough", demoOnly, authenticateUser, authorizeRoles("admin", "manager"), walkthroughLimiter, asyncHandler(demoController.startWalkthrough));
+router.post(
+  "/demo/walkthrough",
+  demoOnly,
+  authenticateUser,
+  authorizeRoles("admin", "manager"),
+  walkthroughLimiter,
+  validateRequest(demoController.startWalkthroughSchema),
+  asyncHandler(demoController.startWalkthrough)
+);
+// The guided request and its recording status. Ordinary approve / reject / undo endpoints do the rest.
+router.post(
+  "/demo/walkthrough/request",
+  demoOnly,
+  authenticateUser,
+  authorizeRoles("admin", "manager"),
+  validateRequest(demoController.guidedRequestSchema),
+  asyncHandler(demoController.requestGuidedCancellation)
+);
+router.get("/demo/walkthrough/actions/:id/recording", demoOnly, authenticateUser, asyncHandler(demoController.getGuidedRecording));
 router.get("/demo/recording", demoOnly, authenticateUser, asyncHandler(demoController.getRecordingStatus));
 router.get("/demo/company", authenticateUser, asyncHandler(demoController.getCompanyData));
 router.post("/demo/reset", demoOnly, authenticateUser, authorizeRoles("admin"), asyncHandler(demoController.resetDemo));

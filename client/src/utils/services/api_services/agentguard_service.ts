@@ -11,6 +11,7 @@ import {
   ChatOutcome,
   CompanyData,
   Connections,
+  GuidedRecordingStatus,
   Policy,
   PolicyInput,
   RuleDraft,
@@ -85,7 +86,10 @@ export const integrationService = {
 };
 
 export const demoService = {
-  startWalkthrough: () => unwrap<{ bookingCode: string }>(apiClient.post("/demo/walkthrough")),
+  // attemptId: one per click, so a retried click returns the same booking instead of making another.
+  startWalkthrough: (attemptId: string) => unwrap<{ bookingCode: string }>(apiClient.post("/demo/walkthrough", { attemptId })),
+  requestGuidedCancellation: (bookingCode: string) => unwrap<AgentAction>(apiClient.post("/demo/walkthrough/request", { bookingCode })),
+  guidedRecording: (actionId: string) => unwrap<GuidedRecordingStatus>(apiClient.get(`/demo/walkthrough/actions/${encodeURIComponent(actionId)}/recording`)),
   recording: () => unwrap<{ configured: boolean }>(apiClient.get("/demo/recording")),
   company: () => unwrap<CompanyData>(apiClient.get("/demo/company")),
   reset: () => unwrap<{ reset: boolean }>(apiClient.post("/demo/reset")),

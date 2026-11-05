@@ -42,9 +42,67 @@ Other tools solve part of the same problem. This is how I understand them (detai
 
 ## Guided portfolio demo
 
-Open [/walkthrough](https://agentguard.sritaraksolutions.in/walkthrough), sign in as a demo manager, and prepare a fresh ₹7,500 practice booking. Request cancellation, inspect the pending state, approve, verify the cancellation and undo it. Each attempt has its own booking; starting one never resets other visitors' data. Company policies and daily limits remain shared, so the UI explains denied or interrupted requests. Practice creation is limited to ten attempts per IP per hour.
+Open [/walkthrough](https://agentguard.sritaraksolutions.in/walkthrough) and sign in as a demo manager. Six numbered steps take a visitor through one booking:
 
-AgentReplay recording status is shown explicitly. When no recording key is configured, the page links to AgentReplay's separate wrong-refund sample rather than claiming the two live demos share a run.
+1. **Start a sample booking:** a fresh ₹7,500 practice booking, just for this visitor.
+2. **The AI agent asks to cancel it.**
+3. **AgentGuard explains why it needs you:** the rule that paused it, in plain words. Approve.
+4. **See the result:** cancelled, ₹7,500 refunded (practice money).
+5. **Watch the recording:** "View recording" opens that exact journey in AgentReplay (when recording is configured).
+6. **Undo it:** here, or from the action AgentReplay links back to.
+
+- **Each attempt has its own booking.** Starting one never resets other visitors' data. Company rules and daily limits remain shared, so the page explains denied or interrupted requests. Practice creation is limited to ten attempts per IP per hour.
+- **Repeated clicks are safe.** Each "Prepare" click sends an attempt id, so a retry returns the same booking. A booking can be asked about only once: the idempotency key is `guided-booking:<booking code>`. Approve and Undo were already atomic.
+- **The journey lives in the address** (`/walkthrough?booking=…&action=…`). A refresh, or signing in again, comes back to the same step.
+
+## Guided demo recording in AgentReplay
+
+When `AGENTREPLAY_API_KEY` is set, the journey is recorded once a person decides (approve, reject, or refused by a rule). The recording is one run, named after the booking. It has four steps: the agent's request, AgentGuard's rule check, the manager's decision and the result. Every step carries `externalRef { system: "agentguard", id: <action id>, url: <CLIENT_ORIGIN>/activity?action=<id> }`.
+
+```mermaid
+sequenceDiagram
+    participant V as Visitor
+    participant G as AgentGuard
+    participant R as AgentReplay
+    V->>G: Prepare (attemptId) / Request (booking code)
+    G-->>V: pending_approval + why
+    V->>G: Approve
+    G-->>V: done (booking cancelled)
+    G--)R: SDK: one run, 4 steps, each linked to the action (background)
+    V->>G: recording status (polls)
+    G->>R: GET /api/ingest/runs/:runId?ref=:actionId (SDK key, server-side)
+    G-->>V: pending → available + link
+    V->>R: View recording → Try the demo → that exact run
+    R-->>V: "Open this action in AgentGuard"
+    V->>G: /activity?action=… → Undo (managers only)
+```
+
+- **Accurate states.** `GET /api/demo/walkthrough/actions/:id/recording` answers `waiting` (nobody has decided yet), `pending`, `available` or `unavailable`, each with a plain sentence. It says `available` only when AgentReplay confirms that this run arrived **and links to this action**, so an unrelated recording is never offered. A run that has not arrived within 2 minutes is reported `unavailable`, and still becomes available if it arrives later.
+- **Never in the way.** Recording starts after the decision, in the background. An AgentReplay outage never changes the approval, the booking or Undo, and tests cover this.
+- **Once per action.** An atomic claim on the action (`replayRecording`) means double clicks, several tabs and several servers record it once. A decided journey that was never recorded (for example after a restart) is recorded on the next status check.
+- **Company boundaries.** The status endpoint only finds the signed-in person's own company's actions. Guided requests only accept `DEMO-` practice bookings.
+- **Credentials stay server-side.** The SDK key is used only by the server. The browser receives the viewing link and nothing else.
+- **Who does what.** AgentReplay only shows the recording and lets people make simulated forks. Approvals and Undo happen only in AgentGuard, by signed-in managers and admins.
+
+**Configuration (no secret values here):**
+
+| Where | Setting | Value |
+| --- | --- | --- |
+| AgentGuard | `AGENTREPLAY_API_KEY` | an SDK key `ar_` + 48 hex characters (secret) |
+| AgentGuard | `AGENTREPLAY_URL` | empty for the hosted AgentReplay, or its address |
+| AgentGuard | `CLIENT_ORIGIN` | AgentGuard's public https address (used in the links back) |
+| AgentReplay | `AGENTGUARD_DEMO_SDK_KEY` | **the same key** (secret). It creates the protected "AgentGuard guided demo" app in AgentReplay's demo workspace, so "Try the demo" opens the recording. |
+
+Make a key with `node -e "console.log('ar_' + require('crypto').randomBytes(24).toString('hex'))"`. Set it in both hosts' secret settings, never in a file. Without it, the walkthrough says recording is not turned on and everything else works the same.
+
+**Check the whole journey across both products in a browser (desktop and phone):**
+
+```bash
+npm --prefix ../agent_replay ci && npm --prefix ../agent_replay run build -w client
+AGENTREPLAY_DIR=../agent_replay TEST_MONGO_URI=mongodb://127.0.0.1:27017 npm run check:linked-journey
+```
+
+Screenshots are saved in `checks/screenshots/linked-journey/`.
 
 ## Real GitHub sandbox integration
 
@@ -75,6 +133,7 @@ Then approve the big cancellation, open **Activity**, press **Undo**, and check 
 [AgentReplay](https://github.com/deepak-r-fullstack/agent_replay) is the sister project that records every step of an AI run so you can replay it. The two link both ways, and the link only ever **opens** things:
 
 - **A direct link to one action.** `/activity?action=<id>` opens the Activity screen with that action's details already open. Closing the details takes `?action=` out of the address. A wrong or malformed id, or one that belongs to another company, shows "We could not find that action." and the normal list. Someone who is signed out is sent to sign in and lands on the same link afterwards.
+- **The guided demo's recording:** see [Guided demo recording in AgentReplay](#guided-demo-recording-in-agentreplay).
 - **Optional recording of playground runs.** Set `AGENTREPLAY_API_KEY` (an SDK key starting with `ar_`, from AgentReplay's *Apps and keys* screen) and each **Try an agent** request is recorded with [`@sritarak/agentreplay`](https://www.npmjs.com/package/@sritarak/agentreplay): one run named after the request, for the person the agent worked for; the AI planning call as an `llm` step; and each guarded action as a `tool` step whose output is its result or status (`done`, `pending_approval`, `denied`...). Every action step carries a link back here, `{ system: "agentguard", id: <action id>, url: <CLIENT_ORIGIN>/activity?action=<action id> }`, so a person replaying the run can jump to the action.
 - **Off by default.** Without the key nothing is recorded, nothing is sent and the package is never started. `AGENTREPLAY_URL` is only for a self-hosted AgentReplay.
 - **Never in the way.** Steps are queued and sent in the background with a short timeout. If AgentReplay is down, the playground answers exactly as before (a test covers this).
@@ -192,7 +251,7 @@ npm test
 
 The first run downloads a MongoDB binary (about 100 MB) for the in-memory database. To use an existing MongoDB instead: `TEST_MONGO_URI=mongodb://127.0.0.1:27017 npm test`.
 
-What is covered (203 tests):
+What is covered (249 tests):
 
 - **Policy engine (pure):** every operator, the strictest rule wins, the safe default, daily limits, failing closed when an amount cannot be measured, irreversible actions, wildcard and disabled rules.
 - **Rule validation:** unknown actions, invented fields, wrong value types.
@@ -200,6 +259,7 @@ What is covered (203 tests):
 
 - **Reliability (new):** ten simultaneous requests never pass the limit; room given back on reject, undo, failure and expiry (and only once); a counter created mid-day still counts earlier actions; interrupted actions settled once even with six servers running the job; a late finish not overwriting recovery; expiry by sweep and at approval time; `expired` seen by agents over REST and MCP and in Slack; the admin setting; the audit chain (OK, edited, removed, cut off, relinked, per company, 40 simultaneous writes, entries from before the chain, demo reset).
 - **AgentReplay link (12 tests):** the deep link finds only the signed-in person's own company's action (another company's, made-up and malformed ids all say not found); recording is off and the package untouched without a key; with a key, one run with an AI step and a linked step per action (done, waiting, refused, failed); the playground still answers quickly when AgentReplay refuses the connection or never replies; no agent key, header or MCP tool can undo, and a manager still can.
+- **Guided journey with AgentReplay (21 tests):** the complete journey (why approval is needed, approve, a four-step recording linked to the action, available link, Undo restores the booking); rejected and refused journeys; one booking per attempt and one request per booking under simultaneous clicks; approve, record and undo exactly once; AgentReplay down, slow or unreachable (pending, then unavailable, and a late arrival still becomes available); a run linked to another action is never offered; recording off; recovery after a missed recording (also with simultaneous checks); expired requests; sign-in, roles, other companies, non-practice bookings and demo mode off. The SDK key never reaches the browser.
 - **MCP (20 tests):** initialize, tools/list (names, hints, input shape), an allowed call, one that needs approval and then completes, a denied one, idempotent retries (also across MCP and REST), `Authorization: Bearer` and `x-agent-key`, unknown fields refused, agents seeing only their own actions, unexpected errors hidden from the agent.
 - **Slack (29 tests, Slack faked by mocking `fetch`):** signature accepted or rejected (wrong secret, changed body, stale timestamp), the approval message and its buttons, Slack down never failing the agent, the Slack user mapped by email, roles, same company and channel, separation of duties, two clicks at once, web decisions updating the message, the Connections settings, and channel changes in the audit log.
 
@@ -300,6 +360,7 @@ These close the "known limits" the first version listed. Every state change is s
 - **Recovery does not look at the company system.** An interrupted action is marked failed (or done again, for an undo) and a person checks the booking; the job does not try to find out what really happened. Next step: ask the system of record.
 - **The audit chain proves changes, not the loss of the newest entries.** Deleting the last few entries leaves a valid shorter chain. The verify result includes the latest hash (`headHash`); write it down somewhere else (or have a scheduled job do it) to catch that. Writes also take turns per company, which is fine at this scale but would need a different design for very high volume.
 - **Approval reminders** (a nudge before a request expires) are not built; requests simply expire.
+- **Guided demo recordings are shared demo data.** They land in AgentReplay's public demo workspace, which every "Try the demo" visitor can see (practice data only). They are kept for 24 hours, and the demo's 5 MB a day storage limit applies. If that limit is reached, the walkthrough honestly reports the recording as unavailable. Undo after the recording is not added to it; the action's current state is always in AgentGuard.
 - **Slack messages are not retried.** If Slack was down at the moment a request was made, no message is posted later. The request is still in the web app.
 - **The demo company system lives in the same database.** In real use the registry's `run` and `undo` would call the customer's own APIs.
 - **Reset demo data** clears that company's audit log and starts a new chain (keeping the record of team changes). It only exists in demo mode (`DEMO_MODE=false` turns it off).
