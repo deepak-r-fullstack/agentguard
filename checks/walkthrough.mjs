@@ -11,7 +11,8 @@ const child = spawn(process.execPath, ["--import", "tsx", "checks/serve-demo.ts"
     NODE_ENV: "test",
     DEMO_MODE: "true",
     JWT_SECRET: "browser-test-secret-only",
-    TEST_MONGO_URI: "",
+    // A local MongoDB (for example mongodb://127.0.0.1:27017) when the in-memory one cannot be downloaded. Each run uses its own database and drops it.
+    TEST_MONGO_URI: process.env.TEST_MONGO_URI || "",
     AGENTREPLAY_API_KEY: "",
     GITHUB_SANDBOX_TOKEN: "",
     LOCAL_BROWSER_PORT: port

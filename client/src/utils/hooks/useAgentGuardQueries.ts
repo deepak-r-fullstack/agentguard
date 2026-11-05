@@ -28,6 +28,7 @@ export const queryKeys = {
   connections: ["connections"] as const,
   approvalSettings: ["settings", "approvals"] as const,
   team: ["team"] as const,
+  guidedRecording: (id: string) => ["guided-recording", id] as const,
 };
 
 // Approvals arrive from agents at any time, so these lists refresh themselves.
@@ -49,6 +50,18 @@ export function useActionDetail(id: string | null) {
     refetchInterval: (query) => ["pending_approval", "executing", "undoing"].includes(query.state.data?.status || "") ? LIVE_REFRESH_MS : false,
     // A wrong or foreign id will not become right by asking again (people can arrive here from a link).
     retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
+  });
+}
+
+// A recording is sent in the background after the decision, so this checks every few seconds until it is ready or
+// known to be unavailable. Waiting for a decision also keeps checking (the decision may come from another tab or Slack).
+export function useGuidedRecording(actionId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.guidedRecording(actionId || ""),
+    queryFn: () => demoService.guidedRecording(actionId as string).then((response) => response.data),
+    enabled: Boolean(actionId),
+    refetchInterval: (query) => (["waiting", "pending"].includes(query.state.data?.state || "") ? 3000 : false),
+    retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 2,
   });
 }
 
@@ -119,7 +132,7 @@ export function useConnections() {
 function useRefreshEverything() {
   const queryClient = useQueryClient();
   return () => {
-    ["actions", "action", "actions-stats", "audit", "company", "policies"].forEach((key) =>
+    ["actions", "action", "actions-stats", "audit", "company", "policies", "guided-recording"].forEach((key) =>
       queryClient.invalidateQueries({ queryKey: [key] })
     );
   };

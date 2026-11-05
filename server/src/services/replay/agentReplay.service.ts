@@ -24,6 +24,8 @@ export interface PlaygroundRecording {
   finish(): void;
 }
 
+export const DEFAULT_AGENTREPLAY_URL = "https://agentreplay.sritaraksolutions.in";
+
 export function isAgentReplayConfigured(): boolean {
   return Boolean(env.AGENTREPLAY_API_KEY);
 }
@@ -31,6 +33,23 @@ export function isAgentReplayConfigured(): boolean {
 // The page that opens one action's details (the Activity screen reads ?action=).
 export function activityLink(actionId: string): string {
   return `${env.CLIENT_ORIGIN.replace(/\/+$/, "")}/activity?action=${encodeURIComponent(actionId)}`;
+}
+
+// The AgentReplay site (empty setting = the hosted one). Recording, checking and viewing all use this address.
+export function agentReplayBaseUrl(): string {
+  return (env.AGENTREPLAY_URL || DEFAULT_AGENTREPLAY_URL).replace(/\/+$/, "");
+}
+
+/** The AgentReplay page that finds exactly this recording by its SDK run id. Null when the address is not a safe web link. */
+export function recordingViewUrl(runId: string): string | null {
+  try {
+    const destination = new URL(agentReplayBaseUrl());
+    if (!["https:", "http:"].includes(destination.protocol) || destination.username || destination.password) return null;
+    return destination.toString().replace(/\/+$/, "") + "/runs?externalId=" + encodeURIComponent(runId);
+  } catch {
+    // Recording may still work without a browser destination; never return an unsafe link.
+    return null;
+  }
 }
 
 // What the step shows as its output: the result once it is done, otherwise where the action stands.
@@ -59,15 +78,8 @@ export function startPlaygroundRecording(input: { name: string; onBehalfOf: stri
     return NOT_RECORDING;
   }
 
-  let link: PlaygroundRecording["link"];
-  try {
-    const destination = new URL(env.AGENTREPLAY_URL || "https://agentreplay.sritaraksolutions.in");
-    if (["https:", "http:"].includes(destination.protocol) && !destination.username && !destination.password) {
-      link = { runId: run.id, url: destination.toString().replace(/\/+$/, "") + "/runs?externalId=" + encodeURIComponent(run.id), state: "queued" };
-    }
-  } catch {
-    // Recording may still work without a browser destination; never return an unsafe link.
-  }
+  const url = recordingViewUrl(run.id);
+  const link: PlaygroundRecording["link"] = url ? { runId: run.id, url, state: "queued" } : undefined;
 
   return {
     link,

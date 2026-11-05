@@ -15,7 +15,8 @@
     "test": "npm test -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
     "build": "npm run build -w server && npm run build -w client",
-    "check:browser": "npm run build && node checks/walkthrough.mjs"
+    "check:browser": "npm run build && node checks/walkthrough.mjs",
+    "check:linked-journey": "npm run build && node checks/linked-journey.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.5",

@@ -15,6 +15,20 @@ const limitReservationSchema = new Schema(
   { _id: false }
 );
 
+// The optional AgentReplay recording of a guided-demo journey (see services/replay/guidedJourney.service.ts).
+// "sending": claimed, so only one recording is ever made; "sent": handed to the SDK with this run id;
+// "confirmed": AgentReplay said the run arrived and links to this action.
+export const REPLAY_RECORDING_STATES = ["sending", "sent", "confirmed"] as const;
+const replayRecordingSchema = new Schema(
+  {
+    state: { type: String, enum: REPLAY_RECORDING_STATES, required: true },
+    runId: { type: String, default: "" }, // the SDK's run id, the same id AgentReplay's ?externalId= filter finds
+    sentAt: { type: Date, required: true },
+    confirmedAt: { type: Date },
+  },
+  { _id: false }
+);
+
 // One document per action an agent asked for. It holds everything needed to
 // explain the decision later and to undo the change.
 const actionRecordSchema = new Schema(
@@ -48,6 +62,9 @@ const actionRecordSchema = new Schema(
     // Where the Slack approval message lives, so it can be updated once someone decides.
     slackChannelId: { type: String, default: "" },
     slackMessageTs: { type: String, default: "" },
+    // "guided_booking" for the portfolio walkthrough's practice booking; empty for everything else.
+    demoJourney: { type: String, default: "" },
+    replayRecording: { type: replayRecordingSchema, default: undefined },
     // Same key twice = same action. Unique per workspace + agent.
     idempotencyKey: { type: String, required: true },
   },
