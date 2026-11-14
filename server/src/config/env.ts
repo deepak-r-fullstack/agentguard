@@ -36,6 +36,11 @@ const envSchema = z.object({
   GITHUB_SANDBOX_REPOSITORY: z.string().default(""),
   GITHUB_SANDBOX_WORKSPACE_ID: z.string().default(""),
   GITHUB_SANDBOX_LABEL: z.string().trim().min(1).max(50).default("agentguard-demo"),
+  // Optional ShiftPilot (scheduling assistant) connection: schedule plans applied here, for the Sunrise demo company.
+  SHIFTPILOT_URL: z.string().optional().default(""),
+  SHIFTPILOT_INTERNAL_SECRET: z.string().optional().default(""),
+  // A fixed key for the Sunrise "ShiftPilot" agent, so it survives demo reseeds. Empty = a random key like the others.
+  SHIFTPILOT_AGENT_KEY: z.string().optional().default(""),
   // Demo mode turns on the "reset demo data" button and the agent playground.
   DEMO_MODE: z
     .enum(["true", "false"])

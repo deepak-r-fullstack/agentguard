@@ -139,6 +139,23 @@ Then approve the big cancellation, open **Activity**, press **Undo**, and check 
 - **Never in the way.** Steps are queued and sent in the background with a short timeout. If AgentReplay is down, the playground answers exactly as before (a test covers this).
 - **No undo from outside.** Neither AgentReplay nor any agent key can undo anything. Undo stays with signed-in managers and admins, and every undo is in the audit log with the person's name.
 
+## Works with ShiftPilot
+
+[ShiftPilot](https://github.com/deepak-r-fullstack/shiftpilot) is an AI scheduling assistant for home care coordinators. When a coordinator approves a schedule plan there, it arrives here as **one** action, `schedule.applyPlan`, in the **Sunrise Home Care (demo)** company:
+
+- **Rules decide.** Plans that change up to 10 existing visits run at once; bigger ones wait for a manager. Dana Lopez (coordinator@sunrise.test) sends the plans, so she cannot approve her own: Sam Ortiz (manager@sunrise.test) can.
+- **AgentGuard runs it by calling ShiftPilot back** (`POST /api/internal/plans/:id/run`, shared secret, 8-second timeout, no redirects, no automatic retries). ShiftPilot re-checks every scheduling rule and applies the whole plan in one transaction, or refuses with a reason that is shown here.
+- **Undo** calls ShiftPilot to put every visit back, refused if any visit changed since. ShiftPilot's "Undo in AgentGuard" link opens that exact action (`/activity?action=<id>`).
+- **Only Sunrise can use it**, and the action is hidden unless ShiftPilot is connected.
+
+| Setting | Value |
+| --- | --- |
+| `SHIFTPILOT_URL` | ShiftPilot's address |
+| `SHIFTPILOT_INTERNAL_SECRET` | the same secret ShiftPilot has (secret) |
+| `SHIFTPILOT_AGENT_KEY` | a fixed `agk_` key for the ShiftPilot agent, the same one ShiftPilot uses (secret). Without it the key is random and changes on every reseed. |
+
+Make a key with `node -e "console.log('agk_' + require('crypto').randomBytes(24).toString('hex'))"`.
+
 ## Architecture
 
 ```mermaid
