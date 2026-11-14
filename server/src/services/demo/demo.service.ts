@@ -9,6 +9,7 @@ import { AuditEvent } from "../../models/auditEvent.model";
 import { UsageCounter } from "../../models/usageCounter.model";
 import { generateApiKey, hashApiKey, hashPassword } from "../auth/auth.service";
 import { env } from "../../config/env";
+import { logger } from "../../utils/logger";
 import { PolicyInput } from "../policy/policySchemas";
 import { Actor, recordAuditEvent } from "../audit/audit.service";
 import { TEAM_AUDIT_EVENT_TYPES } from "../../constants";
@@ -150,6 +151,7 @@ const GLOBEX: DemoCompany = {
 // The home care agency behind ShiftPilot (the scheduling assistant). Its plans arrive as
 // "schedule.applyPlan" actions. Dana is the coordinator who sends them; Sam is the manager
 // who approves big plans (a person can never approve a plan sent on their own behalf).
+// No public admin account here: nobody can make agent keys for this shared demo company.
 export const SHIFTPILOT_AGENT_NAME = "ShiftPilot";
 
 const SUNRISE: DemoCompany = {
@@ -159,7 +161,6 @@ const SUNRISE: DemoCompany = {
   users: [
     { name: "Dana Lopez", email: "coordinator@sunrise.test", role: "manager" },
     { name: "Sam Ortiz", email: "manager@sunrise.test", role: "manager" },
-    { name: "Grace Kim", email: "admin@sunrise.test", role: "admin" },
   ],
   agents: [{ name: SHIFTPILOT_AGENT_NAME, description: "ShiftPilot, the scheduling assistant: applies schedule plans a coordinator approved." }],
   customers: [],
@@ -190,7 +191,10 @@ export const DEMO_COMPANIES = [ACME, GLOBEX, SUNRISE];
 
 /** The ShiftPilot agent uses the fixed key from SHIFTPILOT_AGENT_KEY when set, so ShiftPilot keeps working after a reseed. */
 function keyFor(agentName: string) {
-  if (agentName === SHIFTPILOT_AGENT_NAME && env.SHIFTPILOT_AGENT_KEY.startsWith("agk_")) {
+  if (agentName === SHIFTPILOT_AGENT_NAME && env.SHIFTPILOT_AGENT_KEY && !/^agk_[a-f0-9]{48}$/.test(env.SHIFTPILOT_AGENT_KEY)) {
+    logger.error("SHIFTPILOT_AGENT_KEY must be agk_ followed by 48 hex characters; using a random key, so ShiftPilot cannot connect");
+  }
+  if (agentName === SHIFTPILOT_AGENT_NAME && /^agk_[a-f0-9]{48}$/.test(env.SHIFTPILOT_AGENT_KEY)) {
     const apiKey = env.SHIFTPILOT_AGENT_KEY;
     return { apiKey, apiKeyHash: hashApiKey(apiKey), apiKeyPreview: `${apiKey.slice(0, 8)}…` };
   }

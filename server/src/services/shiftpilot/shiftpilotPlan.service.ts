@@ -14,7 +14,10 @@ import type { ActionContext, ActionDefinition } from "../actions/actionRegistry"
 // ---------------------------------------------------------------------------
 
 export const SHIFTPILOT_WORKSPACE_SLUG = "sunrise-home-care";
+// Reading facts and undoing are quick. Running a whole schedule (~75 new visits, every rule
+// re-checked, one transaction) on free hosting can take longer, so it gets more time.
 const TIMEOUT_MS = 8000;
+const RUN_TIMEOUT_MS = 25000;
 
 export function isShiftPilotConfigured(): boolean {
   return Boolean(env.SHIFTPILOT_URL && env.SHIFTPILOT_INTERNAL_SECRET);
@@ -27,13 +30,13 @@ async function assertSunrise(ctx: ActionContext) {
 }
 
 // Server-owned address and secret, no redirects, no automatic retries of writes, sanitized errors.
-async function shiftpilot(path: string, method: "GET" | "POST"): Promise<Record<string, unknown>> {
+async function shiftpilot(path: string, method: "GET" | "POST", timeoutMs = TIMEOUT_MS): Promise<Record<string, unknown>> {
   let response: Response;
   try {
     response = await fetch(`${env.SHIFTPILOT_URL.replace(/\/+$/, "")}${path}`, {
       method,
       redirect: "error",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       headers: { "x-shiftpilot-secret": env.SHIFTPILOT_INTERNAL_SECRET, "content-type": "application/json" },
     });
   } catch {
@@ -95,7 +98,7 @@ export const shiftpilotPlanAction: ActionDefinition<Params, Snapshot> = {
   },
   async run(params, ctx) {
     await assertSunrise(ctx);
-    const result = await shiftpilot(`/api/internal/plans/${params.proposalId}/run`, "POST");
+    const result = await shiftpilot(`/api/internal/plans/${params.proposalId}/run`, "POST", RUN_TIMEOUT_MS);
     return { proposalId: params.proposalId, applied: factNumber(result.applied) };
   },
   async undo(rawSnapshot, ctx) {

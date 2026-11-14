@@ -144,9 +144,9 @@ Then approve the big cancellation, open **Activity**, press **Undo**, and check 
 [ShiftPilot](https://github.com/deepak-r-fullstack/shiftpilot) is an AI scheduling assistant for home care coordinators. When a coordinator approves a schedule plan there, it arrives here as **one** action, `schedule.applyPlan`, in the **Sunrise Home Care (demo)** company:
 
 - **Rules decide.** Plans that change up to 10 existing visits run at once; bigger ones wait for a manager. Dana Lopez (coordinator@sunrise.test) sends the plans, so she cannot approve her own: Sam Ortiz (manager@sunrise.test) can.
-- **AgentGuard runs it by calling ShiftPilot back** (`POST /api/internal/plans/:id/run`, shared secret, 8-second timeout, no redirects, no automatic retries). ShiftPilot re-checks every scheduling rule and applies the whole plan in one transaction, or refuses with a reason that is shown here.
+- **AgentGuard runs it by calling ShiftPilot back** (`POST /api/internal/plans/:id/run`, shared secret, 25-second timeout, no redirects, no automatic retries). ShiftPilot re-checks every scheduling rule and applies the whole plan in one transaction, or refuses with a reason that is shown here.
 - **Undo** calls ShiftPilot to put every visit back, refused if any visit changed since. ShiftPilot's "Undo in AgentGuard" link opens that exact action (`/activity?action=<id>`).
-- **Only Sunrise can use it**, and the action is hidden unless ShiftPilot is connected.
+- **Only Sunrise can use it**, and the action is hidden unless ShiftPilot is connected. Sunrise has no public admin account, so nobody can make agent keys for it. ShiftPilot itself only runs a plan its coordinator has sent.
 
 | Setting | Value |
 | --- | --- |
