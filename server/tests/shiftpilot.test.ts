@@ -5,8 +5,9 @@ import { env } from "../src/config/env";
 import { ActionRecord } from "../src/models/actionRecord.model";
 import { Workspace } from "../src/models/workspace.model";
 import { Agent } from "../src/models/agent.model";
+import { User } from "../src/models/user.model";
 import { Policy } from "../src/models/policy.model";
-import { DEMO_PASSWORD, resetWorkspaceDemoData, seedDemoData, SHIFTPILOT_AGENT_NAME } from "../src/services/demo/demo.service";
+import { DEMO_COMPANIES, DEMO_PASSWORD, resetWorkspaceDemoData, seedDemoData, seedMissingDemoCompanies, SHIFTPILOT_AGENT_NAME } from "../src/services/demo/demo.service";
 import { startTestDb, stopTestDb } from "./helpers/testDb";
 
 // Real HTTP handlers, guard, policy checks and database; only ShiftPilot is faked (fetch).
@@ -154,5 +155,21 @@ describe("schedule.applyPlan", () => {
       .set("Authorization", `Bearer ${FIXED_KEY}`)
       .send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
     expect(res.body.result.tools.map((t: any) => t.name)).toContain("schedule_applyPlan");
+  });
+});
+
+describe("seeding an older hosted database", () => {
+  it("creates only the missing Sunrise company and leaves the others alone", async () => {
+    const acme = await Workspace.findOne({ slug: DEMO_COMPANIES[0].slug });
+    const sunrise = await Workspace.findOne({ name: /Sunrise/ });
+    await Promise.all([User.deleteMany({ workspaceId: sunrise!._id }), Agent.deleteMany({ workspaceId: sunrise!._id })]);
+    await sunrise!.deleteOne();
+
+    const added = await seedMissingDemoCompanies();
+
+    expect(added.workspaces.map((w) => w.name)).toEqual([sunrise!.name]);
+    expect(String((await Workspace.findOne({ slug: DEMO_COMPANIES[0].slug }))!._id)).toBe(String(acme!._id));
+    expect(await tokenFor("coordinator@sunrise.test")).toBeTruthy();
+    expect((await seedMissingDemoCompanies()).workspaces).toEqual([]);
   });
 });

@@ -4,7 +4,7 @@ import { createApp } from "./app";
 import { connectToDatabase, disconnectFromDatabase } from "./loaders/database";
 import { logger, serializeError } from "./utils/logger";
 import { Workspace } from "./models/workspace.model";
-import { seedDemoData } from "./services/demo/demo.service";
+import { seedDemoData, seedMissingDemoCompanies } from "./services/demo/demo.service";
 import { startMaintenanceJobs } from "./loaders/maintenance";
 
 // Unhandled rejections and uncaught exceptions: log, then exit so the platform
@@ -26,6 +26,10 @@ async function startServer() {
     if (env.SEED_ON_START && (await Workspace.estimatedDocumentCount()) === 0) {
       await seedDemoData();
       logger.info("demo data created on first start");
+    } else if (env.SEED_ON_START) {
+      // An older hosted database may be missing a demo company added later (like Sunrise); create only those.
+      const added = await seedMissingDemoCompanies();
+      if (added.workspaces.length > 0) logger.info("missing demo companies created", { companies: added.workspaces.map((w) => w.name).join(", ") });
     }
 
     // Settle actions a crash left half-done, and expire approvals nobody decided. Safe on several servers at once.

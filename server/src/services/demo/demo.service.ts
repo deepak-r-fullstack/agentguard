@@ -234,6 +234,21 @@ export interface SeedResult {
   agentKeys: { workspace: string; agentName: string; agentId: string; apiKey: string }[];
 }
 
+/** Creates one demo company (workspace, users, agents, data) and adds it to `result`. */
+async function createDemoCompany(company: (typeof DEMO_COMPANIES)[number], passwordHash: string, result: SeedResult) {
+  const workspace = await Workspace.create({ name: company.name, slug: company.slug, ...(company.currency ? { currency: company.currency } : {}) });
+  await User.insertMany(company.users.map((user) => ({ ...user, workspaceId: workspace._id, passwordHash })));
+
+  for (const agentInfo of company.agents) {
+    const { apiKey, apiKeyHash, apiKeyPreview } = keyFor(agentInfo.name);
+    const agent = await Agent.create({ ...agentInfo, workspaceId: workspace._id, apiKeyHash, apiKeyPreview });
+    result.agentKeys.push({ workspace: company.name, agentName: agent.name, agentId: String(agent._id), apiKey });
+  }
+
+  await seedCompanyData(workspace._id, company);
+  result.workspaces.push({ name: company.name, workspaceId: String(workspace._id) });
+}
+
 /** Wipes every demo company and creates them fresh. Used by `npm run seed` and the tests. */
 export async function seedDemoData(): Promise<SeedResult> {
   const result: SeedResult = { workspaces: [], agentKeys: [] };
@@ -246,18 +261,22 @@ export async function seedDemoData(): Promise<SeedResult> {
       await Promise.all([User.deleteMany({ workspaceId: old._id }), Agent.deleteMany({ workspaceId: old._id })]);
       await old.deleteOne();
     }
+    await createDemoCompany(company, passwordHash, result);
+  }
+  return result;
+}
 
-    const workspace = await Workspace.create({ name: company.name, slug: company.slug, ...(company.currency ? { currency: company.currency } : {}) });
-    await User.insertMany(company.users.map((user) => ({ ...user, workspaceId: workspace._id, passwordHash })));
+/**
+ * Creates only the demo companies that do not exist yet (matched by slug). Existing companies are left untouched,
+ * so a hosted database that was seeded before a new demo company was added gets the new one on the next start.
+ */
+export async function seedMissingDemoCompanies(): Promise<SeedResult> {
+  const result: SeedResult = { workspaces: [], agentKeys: [] };
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
 
-    for (const agentInfo of company.agents) {
-      const { apiKey, apiKeyHash, apiKeyPreview } = keyFor(agentInfo.name);
-      const agent = await Agent.create({ ...agentInfo, workspaceId: workspace._id, apiKeyHash, apiKeyPreview });
-      result.agentKeys.push({ workspace: company.name, agentName: agent.name, agentId: String(agent._id), apiKey });
-    }
-
-    await seedCompanyData(workspace._id, company);
-    result.workspaces.push({ name: company.name, workspaceId: String(workspace._id) });
+  for (const company of DEMO_COMPANIES) {
+    if (await Workspace.exists({ slug: company.slug })) continue;
+    await createDemoCompany(company, passwordHash, result);
   }
   return result;
 }
