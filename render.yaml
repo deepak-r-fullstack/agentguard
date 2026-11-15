@@ -38,6 +38,13 @@ services:
         sync: false # SDK key (ar_...) from AgentReplay's "Apps and keys" screen
       - key: AGENTREPLAY_URL
         sync: false # only for a self-hosted AgentReplay; empty means the hosted site
+      # Optional ShiftPilot connection (see README). Leave empty to keep it off.
+      - key: SHIFTPILOT_URL
+        value: https://shiftpilot.sritaraksolutions.in
+      - key: SHIFTPILOT_INTERNAL_SECRET
+        sync: false # the same secret ShiftPilot has
+      - key: SHIFTPILOT_AGENT_KEY
+        sync: false # agk_ + 48 hex characters, the same key ShiftPilot has
       # The test-only in-memory MongoDB is not needed on the server; skip its download.
       - key: MONGOMS_DISABLE_POSTINSTALL
         value: "1"

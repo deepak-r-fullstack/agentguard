@@ -7,7 +7,9 @@ import { Policy } from "../../models/policy.model";
 import { ActionRecord } from "../../models/actionRecord.model";
 import { AuditEvent } from "../../models/auditEvent.model";
 import { UsageCounter } from "../../models/usageCounter.model";
-import { generateApiKey, hashPassword } from "../auth/auth.service";
+import { generateApiKey, hashApiKey, hashPassword } from "../auth/auth.service";
+import { env } from "../../config/env";
+import { logger } from "../../utils/logger";
 import { PolicyInput } from "../policy/policySchemas";
 import { Actor, recordAuditEvent } from "../audit/audit.service";
 import { TEAM_AUDIT_EVENT_TYPES } from "../../constants";
@@ -30,6 +32,7 @@ function daysFromNow(days: number) {
 interface DemoCompany {
   slug: string;
   name: string;
+  currency?: string;
   users: { name: string; email: string; role: "admin" | "manager" | "auditor" }[];
   agents: { name: string; description: string }[];
   customers: { code: string; name: string; email: string }[];
@@ -145,7 +148,58 @@ const GLOBEX: DemoCompany = {
   ],
 };
 
-export const DEMO_COMPANIES = [ACME, GLOBEX];
+// The home care agency behind ShiftPilot (the scheduling assistant). Its plans arrive as
+// "schedule.applyPlan" actions. Dana is the coordinator who sends them; Sam is the manager
+// who approves big plans (a person can never approve a plan sent on their own behalf).
+// No public admin account here: nobody can make agent keys for this shared demo company.
+export const SHIFTPILOT_AGENT_NAME = "ShiftPilot";
+
+const SUNRISE: DemoCompany = {
+  slug: "sunrise-home-care",
+  name: "Sunrise Home Care (demo)",
+  currency: "USD",
+  users: [
+    { name: "Dana Lopez", email: "coordinator@sunrise.test", role: "manager" },
+    { name: "Sam Ortiz", email: "manager@sunrise.test", role: "manager" },
+  ],
+  agents: [{ name: SHIFTPILOT_AGENT_NAME, description: "ShiftPilot, the scheduling assistant: applies schedule plans a coordinator approved." }],
+  customers: [],
+  bookings: [],
+  policies: [
+    {
+      name: "Big schedule changes need a manager",
+      action: "schedule.applyPlan",
+      effect: "require_approval",
+      conditions: [{ field: "facts.existingVisitsChanged", op: "gt", value: 10 }],
+      dailyLimit: null,
+      enabled: true,
+      sourceText: "A plan that changes more than 10 existing visits needs a manager.",
+    },
+    {
+      name: "Normal schedule changes run",
+      action: "schedule.applyPlan",
+      effect: "allow",
+      conditions: [{ field: "facts.existingVisitsChanged", op: "lte", value: 10 }],
+      dailyLimit: null,
+      enabled: true,
+      sourceText: "Plans that change up to 10 existing visits run once the coordinator approved them in ShiftPilot.",
+    },
+  ],
+};
+
+export const DEMO_COMPANIES = [ACME, GLOBEX, SUNRISE];
+
+/** The ShiftPilot agent uses the fixed key from SHIFTPILOT_AGENT_KEY when set, so ShiftPilot keeps working after a reseed. */
+function keyFor(agentName: string) {
+  if (agentName === SHIFTPILOT_AGENT_NAME && env.SHIFTPILOT_AGENT_KEY && !/^agk_[a-f0-9]{48}$/.test(env.SHIFTPILOT_AGENT_KEY)) {
+    logger.error("SHIFTPILOT_AGENT_KEY must be agk_ followed by 48 hex characters; using a random key, so ShiftPilot cannot connect");
+  }
+  if (agentName === SHIFTPILOT_AGENT_NAME && /^agk_[a-f0-9]{48}$/.test(env.SHIFTPILOT_AGENT_KEY)) {
+    const apiKey = env.SHIFTPILOT_AGENT_KEY;
+    return { apiKey, apiKeyHash: hashApiKey(apiKey), apiKeyPreview: `${apiKey.slice(0, 8)}…` };
+  }
+  return generateApiKey();
+}
 
 async function seedCompanyData(workspaceId: Types.ObjectId, company: DemoCompany) {
   const customers = await Customer.insertMany(company.customers.map((customer) => ({ ...customer, workspaceId })));
@@ -193,11 +247,11 @@ export async function seedDemoData(): Promise<SeedResult> {
       await old.deleteOne();
     }
 
-    const workspace = await Workspace.create({ name: company.name, slug: company.slug });
+    const workspace = await Workspace.create({ name: company.name, slug: company.slug, ...(company.currency ? { currency: company.currency } : {}) });
     await User.insertMany(company.users.map((user) => ({ ...user, workspaceId: workspace._id, passwordHash })));
 
     for (const agentInfo of company.agents) {
-      const { apiKey, apiKeyHash, apiKeyPreview } = generateApiKey();
+      const { apiKey, apiKeyHash, apiKeyPreview } = keyFor(agentInfo.name);
       const agent = await Agent.create({ ...agentInfo, workspaceId: workspace._id, apiKeyHash, apiKeyPreview });
       result.agentKeys.push({ workspace: company.name, agentName: agent.name, agentId: String(agent._id), apiKey });
     }

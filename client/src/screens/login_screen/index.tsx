@@ -14,6 +14,12 @@ const DEMO_ACCOUNTS = [
   { email: "auditor@acme.test", name: "Lakshmi Rao", role: "Auditor", does: "Reads and exports the audit log" },
 ];
 
+// The home care agency behind ShiftPilot, the scheduling assistant. Its schedule plans are applied here.
+const SUNRISE_ACCOUNTS = [
+  { email: "manager@sunrise.test", name: "Sam Ortiz", role: "Manager", does: "Approves big ShiftPilot schedule plans and undoes them" },
+  { email: "coordinator@sunrise.test", name: "Dana Lopez", role: "Coordinator", does: "Sends schedule plans from ShiftPilot" },
+];
+
 export const LoginScreen = () => {
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
@@ -38,6 +44,29 @@ export const LoginScreen = () => {
     }
   };
 
+  const renderAccounts = (accounts: typeof DEMO_ACCOUNTS) => (
+    <ul className="mt-3 flex flex-col gap-2">
+      {accounts.map((account) => (
+        <li key={account.email}>
+          <button
+            type="button"
+            onClick={() => signIn(account.email, DEMO_PASSWORD)}
+            disabled={Boolean(loadingEmail)}
+            className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5 text-left transition-colors hover:border-brand hover:bg-brand-tint/40 disabled:opacity-60"
+          >
+            <span>
+              <span className="block font-medium">
+                {account.name}, {account.role}
+              </span>
+              <span className="block text-sm text-ink-soft">{account.does}</span>
+            </span>
+            <span className="text-sm font-semibold text-brand">{loadingEmail === account.email ? "Signing in…" : "Sign in"}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     signIn(email, password);
@@ -52,34 +81,17 @@ export const LoginScreen = () => {
         </div>
         <h1 className="font-serif text-3xl">Let AI agents work, with a person in charge.</h1>
         <p className="mt-2 text-ink-soft">
-          Every action an agent takes is checked against your rules, approved by a person when it matters, recorded,
-          and can be undone.
+          Every action an agent takes is checked against your rules, approved by a person when it matters, recorded, and can be undone.
         </p>
 
         <section className="mt-8 rounded-lg border border-line bg-sheet p-5">
           <h2 className="text-base font-semibold">Try the demo as</h2>
-          <ul className="mt-3 flex flex-col gap-2">
-            {DEMO_ACCOUNTS.map((account) => (
-              <li key={account.email}>
-                <button
-                  type="button"
-                  onClick={() => signIn(account.email, DEMO_PASSWORD)}
-                  disabled={Boolean(loadingEmail)}
-                  className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5 text-left transition-colors hover:border-brand hover:bg-brand-tint/40 disabled:opacity-60"
-                >
-                  <span>
-                    <span className="block font-medium">
-                      {account.name}, {account.role}
-                    </span>
-                    <span className="block text-sm text-ink-soft">{account.does}</span>
-                  </span>
-                  <span className="text-sm font-semibold text-brand">
-                    {loadingEmail === account.email ? "Signing in…" : "Sign in"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {renderAccounts(DEMO_ACCOUNTS)}
+          <h2 className="mt-5 text-base font-semibold">Sunrise Home Care, with ShiftPilot</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Schedule plans from the ShiftPilot scheduling assistant arrive here to be approved and undone.
+          </p>
+          {renderAccounts(SUNRISE_ACCOUNTS)}
         </section>
 
         <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3" noValidate>
@@ -113,7 +125,13 @@ export const LoginScreen = () => {
             />
           </div>
           {error && <DisplayError message={error} />}
-          <DisplayButton type="submit" variant="primary" size="lg" loading={loadingEmail === email && Boolean(email)} disabled={!email || !password}>
+          <DisplayButton
+            type="submit"
+            variant="primary"
+            size="lg"
+            loading={loadingEmail === email && Boolean(email)}
+            disabled={!email || !password}
+          >
             Sign in
           </DisplayButton>
         </form>

@@ -4,6 +4,7 @@ import { Booking, BookingDoc, Customer, CustomerDoc, Outbox } from "../../models
 import { BadRequestError, ConflictError, NotFoundError } from "../../helpers/errors";
 import { DEFAULT_CURRENCY, daysBetween, formatDate, formatMoney } from "../../utils/format";
 import { githubSandboxAction, isGitHubSandboxConfigured } from "../github/githubSandbox.service";
+import { isShiftPilotConfigured, shiftpilotPlanAction } from "../shiftpilot/shiftpilotPlan.service";
 import { MoneyFields } from "./money.service";
 
 // ---------------------------------------------------------------------------
@@ -408,6 +409,7 @@ const definitions: ActionDefinition[] = [
   updateCustomerEmail,
   sendCustomerEmail,
   githubSandboxAction,
+  shiftpilotPlanAction,
 ];
 
 export const actionRegistry: Record<string, ActionDefinition> = Object.fromEntries(
@@ -423,7 +425,11 @@ export function getActionDefinition(key: string): ActionDefinition {
 // The full definitions (including each action's params schema). The MCP server turns
 // every one of these into a tool, so a new action shows up for MCP clients with no extra work.
 export function listActionDefinitions(): ActionDefinition[] {
-  return definitions.filter((definition) => definition.key !== githubSandboxAction.key || isGitHubSandboxConfigured());
+  return definitions.filter((definition) => {
+    if (definition.key === githubSandboxAction.key) return isGitHubSandboxConfigured();
+    if (definition.key === shiftpilotPlanAction.key) return isShiftPilotConfigured();
+    return true;
+  });
 }
 
 // Public description of the catalog, used by the UI and by the AI rule drafter.
